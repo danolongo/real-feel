@@ -1,6 +1,7 @@
 .DS_Store
 .venv/
 plots/
+src/real_feel/config.py
 src/real_feel/models/
 src/real_feel/cardiffnlp/
 src/real_feel/__pycache__/
