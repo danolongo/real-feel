@@ -4,7 +4,7 @@ from scipy.special import softmax
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from pathlib import Path
 
-from .dataProcessing import DataProcessor
+from dataProcessing import DataProcessor
 
 class SentimentAnalyzer:
     def __init__(self, modelPath=None):
@@ -37,7 +37,7 @@ class SentimentAnalyzer:
                     # if local does not exist go back to online tokenizer
                     self.tokenizer = AutoTokenizer.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment", use_fast=True)
             else:
-                # dowload online model if it doesnt exist locally
+                # download online model if it doesnt exist locally
                 print("Local model not found, downloading...")
                 MODEL = "cardiffnlp/twitter-roberta-base-sentiment"
                 self.model = AutoModelForSequenceClassification.from_pretrained(MODEL)
