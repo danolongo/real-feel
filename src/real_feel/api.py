@@ -3,9 +3,9 @@ from pydantic import BaseModel
 from typing import List, Optional
 import json
 
-from .pipeline import DataPipeline
-from .config import DATABASE_URL, TWITTER_AUTH, RAPIDAPI_KEY
-from .models import Tweet
+from real_feel.pipeline import DataPipeline
+from real_feel.config import DATABASE_URL, TWITTER_AUTH, RAPIDAPI_KEY
+from real_feel.models import Tweet
 
 app = FastAPI(
     title="RealFeel API",

@@ -4,7 +4,7 @@ from scipy.special import softmax
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from pathlib import Path
 
-from dataProcessing import DataProcessor
+from real_feel.dataProcessing import DataProcessor
 
 class SentimentAnalyzer:
     def __init__(self, modelPath=None):
