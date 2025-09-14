@@ -3,7 +3,6 @@ import numpy as np
 from scipy.special import softmax
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from pathlib import Path
-
 from real_feel.dataProcessing import DataProcessor
 
 class SentimentAnalyzer:
@@ -20,11 +19,23 @@ class SentimentAnalyzer:
         self.loadModel()
     
     def getDefaultModelPath(self):
+        """
+        Get the default path for storing the sentiment analysis model.
+        
+        Returns:
+            str: Path to the default model directory
+        """
         currentDir = Path(__file__).parent
         modelDir = currentDir / "models" / "twitter-roberta-base-sentiment"
         return str(modelDir)
     
     def loadModel(self):
+        """
+        Load the sentiment analysis model and tokenizer.
+        
+        Loads from local path if available, otherwise downloads from HuggingFace.
+        Saves downloaded models locally for future use.
+        """
         try:
             if os.path.exists(self.modelPath):
                 print(f"Loading local model from {self.modelPath}")
@@ -56,31 +67,15 @@ class SentimentAnalyzer:
             print(f"Error loading model: {e}")
             raise
     
-    #########################################################################################################
-    #########################################################################################################
-    # THIS FUNCTION SHOULD BE USED IN LINE 56 IF USING MORE THAN THE SENTIMENT MODEL
-    # whenever more than one task from model is being used, multiple labels should be generated
-    # def _load_labels(self):
-    #     """Download and parse sentiment labels"""
-    #     try:
-    #         mapping_link = "https://raw.githubusercontent.com/cardiffnlp/tweeteval/main/datasets/sentiment/mapping.txt"
-    #         with urllib.request.urlopen(mapping_link) as f:
-    #             html = f.read().decode('utf-8').split("\n")
-    #             csvreader = csv.reader(html, delimiter='\t')
-    #             self.labels = [row[1] for row in csvreader if len(row) > 1]
-    #     except:
-    #         # Fallback labels if download fails
-    #         self.labels = ['negative', 'neutral', 'positive']
-    #########################################################################################################
-    #########################################################################################################
-    
     def sentimentAnalysis(self, text):
-        """        
+        """
+        Analyze sentiment of a given text.
+        
         Args:
-            text (str): Tweet text to analyze
+            text: Tweet text to analyze
             
         Returns:
-            dict: Dictionary with sentiment scores and prediction
+            Dictionary containing sentiment scores, prediction and confidence
         """
         if not self.model or not self.tokenizer:
             raise ValueError("Model not loaded")
@@ -109,12 +104,12 @@ class SentimentAnalyzer:
         
         return result
     
-    def analyzeBatch(self, texts):
-        """
-        Args:
-            texts (list): List of tweet texts
+    # def analyzeBatch(self, texts):
+    #     """
+    #     Args:
+    #         texts (list): List of tweet texts
             
-        Returns:
-            list: List of sentiment analysis results
-        """
-        return [self.sentimentAnalysis(text) for text in texts]
+    #     Returns:
+    #         list: List of sentiment analysis results
+    #     """
+    #     return [self.sentimentAnalysis(text) for text in texts]

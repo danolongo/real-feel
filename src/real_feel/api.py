@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-import json
 
 from real_feel.pipeline import DataPipeline
 from real_feel.config import DATABASE_URL, TWITTER_AUTH, RAPIDAPI_KEY
@@ -13,7 +12,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Initialize pipeline
 pipeline = DataPipeline(
     db_url=DATABASE_URL,
     twitter_auth=TWITTER_AUTH,
@@ -36,16 +34,25 @@ class StatsResponse(BaseModel):
 
 @app.get("/")
 async def root():
+    """
+    hi
+    
+    Returns:
+        hi
+    """
     return {"message": "Welcome to RealFeel API"}
 
 @app.post("/analyze", response_model=List[TweetResponse])
 async def analyze_tweets(query: str, max_tweets: Optional[int] = 100):
     """
-    Analyze tweets for a given query
+    Analyze tweets for a given query with sentiment and bot detection.
     
     Args:
         query: Search query string
         max_tweets: Maximum number of tweets to analyze (default: 100)
+        
+    Returns:
+        List of analyzed tweets with sentiment and bot detection results
     """
     try:
         tweets = pipeline.process_tweets(query, max_tweets)
@@ -62,7 +69,12 @@ async def analyze_tweets(query: str, max_tweets: Optional[int] = 100):
 
 @app.get("/stats", response_model=StatsResponse)
 async def get_stats():
-    """Get statistics about analyzed tweets"""
+    """
+    Get statistics about analyzed tweets.
+    
+    Returns:
+        Statistics including total tweets, bot counts, and sentiment distribution
+    """
     try:
         return pipeline.get_statistics()
     except Exception as e:
@@ -75,12 +87,15 @@ async def get_tweets_by_sentiment(
     limit: Optional[int] = 10
 ):
     """
-    Get tweets by sentiment type
+    Get tweets filtered by sentiment type.
     
     Args:
         sentiment_type: One of 'positive', 'neutral', 'negative'
         bot_only: If True, return only bot tweets
         limit: Maximum number of tweets to return
+        
+    Returns:
+        List of tweets matching the specified sentiment criteria
     """
     if sentiment_type not in ['positive', 'neutral', 'negative']:
         raise HTTPException(

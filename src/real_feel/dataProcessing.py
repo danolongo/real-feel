@@ -1,6 +1,5 @@
 import re
 import pandas as pd
-import numpy as np
 
 class DataProcessor:
     def __init__(self):
@@ -9,11 +8,13 @@ class DataProcessor:
         
     def preprocess(self, text):
         """
+        Preprocess tweet text by removing URLs and normalizing mentions.
+        
         Args:
-            text (str): Raw tweet text
+            text: Raw tweet text
             
         Returns:
-            str: Preprocessed text
+            Preprocessed text with URLs and mentions normalized
         """
         text = self.urlPattern.sub('http://url.removed', text)
         text = self.mentionPattern.sub('@user', text)
@@ -22,12 +23,14 @@ class DataProcessor:
         return text
     
     def processBatch(self, tweets):
-        """        
+        """
+        Process a batch of tweets into a pandas DataFrame.
+        
         Args:
-            tweets (list): List of tweet dictionaries
+            tweets: List of tweet dictionaries
             
         Returns:
-            pandas.DataFrame: Processed tweets
+            DataFrame containing processed tweets with processed_text column
         """
         df = pd.DataFrame(tweets)
         if 'text' in df.columns:
@@ -36,12 +39,14 @@ class DataProcessor:
         return df
     
     def amounts(self, predictions):
-        """        
+        """
+        Calculate counts of bot vs real tweets from predictions.
+        
         Args:
-            predictions (list): List of prediction dictionaries containing 'is_bot' key
+            predictions: List of prediction dictionaries containing 'is_bot' key
         
         Returns:
-            tuple: (bot_count, real_count, total_count)
+            Tuple containing (bot_count, real_count, total_count)
         """
         botTweets = sum(1 for pred in predictions if pred.get('is_bot', False))
         realTweets = len(predictions) - botTweets
@@ -50,17 +55,21 @@ class DataProcessor:
         return botTweets, realTweets, totalTweets
     
     def filterBots(self, tweets, predictions, threshold=0.5):
-        """        
+        """
+        Filter out bot tweets based on predictions and confidence threshold.
+        
         Args:
-            tweets (list): List of tweet dictionaries
-            predictions (list): List of bot predictions
-            threshold (float): Confidence threshold for filtering
+            tweets: List of tweet dictionaries
+            predictions: List of bot predictions
+            threshold: Confidence threshold for filtering (default: 0.5)
             
         Returns:
-            list: Filtered tweets without bots
+            List of filtered tweets without detected bots
         """
         filtered_tweets = []
+        
         for tweet, pred in zip(tweets, predictions):
             if not pred.get('is_bot', False) or pred.get('bot_confidence', 0) < threshold:
                 filtered_tweets.append(tweet)
+
         return filtered_tweets
