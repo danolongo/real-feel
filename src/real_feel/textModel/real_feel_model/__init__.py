@@ -1,69 +1,87 @@
 """
-Transformer-based Bot Detection System for Twitter
-BERT-style encoder-only architecture for Cresci-2017 dataset
+CLS + MaxPool Ensemble Bot Detection System
+Advanced transformer-based approach combining sophisticated detection with obvious spam filtering
+Based on insights from experiments 3, 4, and 5
 """
 
-"""
-Transformer-based Bot Detection System for Twitter
-Implementation of BERT-style encoder-only architecture for Cresci-2017 dataset
-"""
-
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __author__ = "Daniel Martinez"
-__description__ = "Transformer-based Twitter bot detection using Cresci-2017 dataset"
+__description__ = "CLS + MaxPool ensemble transformer for Twitter bot detection"
 
+# Configuration
 from .config import (
-    ModelConfig, 
-    TrainingConfig, 
-    DataConfig, 
+    ModelConfig,
+    TrainingConfig,
+    DataConfig,
+    EnsembleConfig,
     ExperimentConfig,
     get_default_config,
-    get_small_config,
-    get_large_config
+    get_fast_config,
+    get_production_config
 )
 
+# Core Models
 from .model import (
     BotDetectionTransformer,
+    CLSMaxPoolEnsemble,
+    AdvancedPoolingHead,
     MultiHeadAttention,
     TransformerEncoderLayer,
-    create_model
+    create_ensemble_model
 )
 
-from .data import (
-    TwitterTokenizer,
-    TwitterBotDataset,
-    create_data_loaders,
-    load_cresci_demo_data
+# Loss Functions
+from .loss import (
+    AdvancedLossFunction,
+    EnsembleLoss,
+    create_loss_function
 )
 
+# Optimization
+from .optimizer import (
+    OptimizationManager,
+    AdvancedLRScheduler,
+    AdvancedGradientClipper,
+    OptimizerFactory
+)
+
+# Training
 from .trainer import (
-    BotDetectionTrainer,
-    create_trainer
+    EnsembleTrainer,
+    create_ensemble_trainer
 )
 
 __all__ = [
     # Config
     'ModelConfig',
-    'TrainingConfig', 
+    'TrainingConfig',
     'DataConfig',
+    'EnsembleConfig',
     'ExperimentConfig',
     'get_default_config',
-    'get_small_config',
-    'get_large_config',
-    
-    # Model
+    'get_fast_config',
+    'get_production_config',
+
+    # Models
     'BotDetectionTransformer',
+    'CLSMaxPoolEnsemble',
+    'AdvancedPoolingHead',
     'MultiHeadAttention',
     'TransformerEncoderLayer',
-    'create_model',
-    
-    # Data
-    'TwitterTokenizer',
-    'TwitterBotDataset',
-    'create_data_loaders',
-    'load_cresci_demo_data',
-    
+    'create_ensemble_model',
+
+    # Loss Functions
+    'AdvancedLossFunction',
+    'EnsembleLoss',
+    'create_loss_function',
+
+    # Optimization
+    'OptimizationManager',
+    'AdvancedLRScheduler',
+    'AdvancedGradientClipper',
+    'OptimizerFactory',
+
     # Training
-    'BotDetectionTrainer',
-    'create_trainer'
+    'EnsembleTrainer',
+    'create_ensemble_trainer'
 ]

@@ -1,0 +1,76 @@
+# Docker Compose for CLS + MaxPool Ensemble Training on EC2
+# Usage: docker-compose -f docker-compose.training.yml up
+version: '3.8'
+
+services:
+  ensemble-training:
+    build:
+      context: ../../../../  # Build from project root
+      dockerfile: src/real_feel/textModel/real_feel_model/Dockerfile.training
+    container_name: realfeel-ensemble-training
+
+    # GPU support and resource management (requires nvidia-docker2)
+    deploy:
+      resources:
+        limits:
+          memory: 32G
+        reservations:
+          memory: 16G
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # Environment variables
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTHONUNBUFFERED=1
+      - TOKENIZERS_PARALLELISM=false
+
+    # Volume mounts
+    volumes:
+      - ${DATA_PATH:-../datasets}:/data:ro        # Dataset directory (read-only)
+      - ${OUTPUT_PATH:-./trained_models}:/models  # Model output
+      - ${LOG_PATH:-./logs}:/logs                 # Training logs
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw          # For any GUI tools
+
+    # Command override - can be set via environment
+    command: >
+      python train_ensemble.py
+      --config ${CONFIG:-production}
+      --data_path /data/${DATASET_FILE:-datasets_full.csv}
+      --output_dir /models
+      --gpu_id ${GPU_ID:-0}
+      --experiment_name ensemble_${TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}
+
+    # Restart policy
+    restart: "no"  # Don't restart on failure for training jobs
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  # Optional: Monitoring service
+  training-monitor:
+    image: nvidia/cuda:11.8-runtime-ubuntu22.04
+    container_name: realfeel-training-monitor
+    command: >
+      bash -c "
+      while true; do
+        echo '=== GPU Status ==='
+        nvidia-smi --query-gpu=timestamp,name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv
+        echo '=== System Status ==='
+        free -h
+        df -h /models
+        sleep 30
+      done
+      "
+    volumes:
+      - ${OUTPUT_PATH:-./trained_models}:/models:ro
+    depends_on:
+      - ensemble-training
+    profiles:
+      - monitoring

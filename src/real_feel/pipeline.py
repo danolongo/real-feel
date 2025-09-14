@@ -5,18 +5,28 @@ from typing import List, Dict, Any
 import json
 
 class DataPipeline:
-    def __init__(self, db_url: str, twitter_auth: Dict[str, str], rapidapi_key: str):
+    def __init__(self, db_url: str, twitter_auth: Dict[str, str], rapidapi_key: str,
+                 use_ensemble_bot_detector: bool = True, ensemble_model_path: str = None):
         """
-        Initialize the data pipeline
-        
+        Initialize the data pipeline with CLS + MaxPool ensemble bot detection
+
         Args:
             db_url: Database connection URL
             twitter_auth: Twitter API credentials
-            rapidapi_key: RapidAPI key for Botometer
+            rapidapi_key: RapidAPI key for Botometer (fallback)
+            use_ensemble_bot_detector: Whether to use transformer ensemble (default: True)
+            ensemble_model_path: Path to trained ensemble model weights (optional)
         """
         self.session = init_db(db_url)
-        self.twitter_client = TwitterClient(twitter_auth, rapidapi_key)
+        self.twitter_client = TwitterClient(
+            twitter_auth,
+            rapidapi_key,
+            use_ensemble_detector=use_ensemble_bot_detector,
+            ensemble_model_path=ensemble_model_path
+        )
         self.sentiment_analyzer = SentimentAnalyzer()
+
+        print(f"✓ DataPipeline initialized with {'CLS+MaxPool ensemble' if use_ensemble_bot_detector else 'BotometerX'} bot detection")
     
     def process_tweets(self, query: str, max_tweets: int = 100) -> List[Tweet]:
         """
@@ -43,7 +53,11 @@ class DataPipeline:
                 continue
                 
             sentiment_result = self.sentiment_analyzer.sentimentAnalysis(tweet_data['text'])
-            bot_result = self.twitter_client.check_bot(tweet_data['user_id'])
+            bot_result = self.twitter_client.check_bot(
+                user_id=tweet_data['user_id'],
+                tweet_text=tweet_data['text'],
+                user_data=tweet_data.get('user', {})
+            )
             
             tweet = Tweet(
                 tweet_id                = tweet_data['tweet_id'],
@@ -105,9 +119,13 @@ class DataPipeline:
             }
         }
         
+        # Get bot detection statistics
+        bot_detection_stats = self.twitter_client.get_bot_detection_stats()
+
         return {
             'total_tweets': total_tweets,
             'bot_tweets': bot_tweets,
             'real_tweets': real_tweets,
-            'sentiment_stats': sentiment_stats
+            'sentiment_stats': sentiment_stats,
+            'bot_detection_stats': bot_detection_stats
         }
