@@ -3,7 +3,6 @@ from real_feel.twitter_client import TwitterClient
 from real_feel.sentimentPredict import SentimentAnalyzer
 from typing import List, Dict, Any
 import json
-# from datetime import datetime
 
 class DataPipeline:
     def __init__(self, db_url: str, twitter_auth: Dict[str, str], rapidapi_key: str):
@@ -30,42 +29,36 @@ class DataPipeline:
         Returns:
             List of processed Tweet objects
         """
-        # Get tweets from Twitter
+        
         tweets = self.twitter_client.search_tweets(query, max_tweets)
         processed_tweets = []
         
         for tweet_data in tweets:
-            # Check if tweet already exists
+            # check if tweet exists
             existing = self.session.query(Tweet).filter_by(
-                tweet_id=tweet_data['tweet_id']
+                tweet_id = tweet_data['tweet_id']
             ).first()
             
             if existing:
                 continue
                 
-            # Run sentiment analysis
-            sentiment_result = self.sentiment_analyzer.sentimentAnalysis(
-                tweet_data['text']
-            )
-            
-            # Check if user is a bot
+            sentiment_result = self.sentiment_analyzer.sentimentAnalysis(tweet_data['text'])
             bot_result = self.twitter_client.check_bot(tweet_data['user_id'])
             
-            # Create Tweet object
             tweet = Tweet(
-                tweet_id=tweet_data['tweet_id'],
-                text=tweet_data['text'],
-                user_id=tweet_data['user_id'],
-                created_at=tweet_data['created_at'],
-                sentiment=sentiment_result['predicted_sentiment'],
-                sentiment_confidence=sentiment_result['confidence'],
-                sentiment_scores=json.dumps(sentiment_result['sentiment_scores']),
-                is_bot=bot_result['is_bot'],
-                bot_score=bot_result['bot_score'],
-                bot_scores=bot_result['bot_scores']
+                tweet_id                = tweet_data['tweet_id'],
+                text                    = tweet_data['text'],
+                user_id                 = tweet_data['user_id'],
+                created_at              = tweet_data['created_at'],
+                sentiment               = sentiment_result['predicted_sentiment'],
+                sentiment_confidence    = sentiment_result['confidence'],
+                sentiment_scores        = json.dumps(sentiment_result['sentiment_scores']),
+                is_bot                  = bot_result['is_bot'],
+                bot_score               = bot_result['bot_score'],
+                bot_scores              = bot_result['bot_scores']
             )
             
-            # Save to database
+            # save results to db
             try:
                 self.session.add(tweet)
                 self.session.commit()

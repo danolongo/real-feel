@@ -1,3 +1,5 @@
+# update to take out features and have it be just text whenever testing
+
 import sys
 import pandas as pd
 from pathlib import Path
