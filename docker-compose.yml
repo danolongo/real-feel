@@ -28,7 +28,7 @@ services:
       POSTGRES_PASSWORD: realfeel
       POSTGRES_DB: realfeel
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -41,6 +41,19 @@ services:
       DEFAULT_REGION: us-east-1
     volumes:
       - localstack_data:/var/lib/localstack
+
+  spark-master:
+    image: apache/spark:3.5.1
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+
+  spark-worker:
+    image: apache/spark:3.5.1
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    depends_on:
+      - spark-master
 
 volumes:
   postgres_data:
