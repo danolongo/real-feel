@@ -160,9 +160,9 @@ real-feel-crawler/          # Separate repo — crawler microservice
 
 ## Implementation Order
 
-1. **Local Docker Compose** — Kafka + Spark + PostgreSQL (with pgvector) + LocalStack (DynamoDB)
+1. ✅ **Local Docker Compose** — Kafka + Spark + PostgreSQL (with pgvector) + LocalStack (DynamoDB)
 2. **Supabase setup** — Create project, enable pgvector extension, create tables for tweets & temporal
-3. **Crawler** (separate repo) — Rust service that scrapes X and produces to Kafka "raw-tweets"
+3. ⏳ **Crawler** (separate repo) — Rust service that scrapes X and produces to Kafka "raw-tweets" — NOT YET STARTED
 4. **PySpark pipeline** — Locally test: consume raw tweets, run all 4 models, write to local PostgreSQL
 5. **Lambda API** — Locally test with SAM: submit queries to Kafka, poll DynamoDB/PostgreSQL
 6. **End-to-end testing** — Full pipeline working locally: query → crawler → Spark → PostgreSQL → results
