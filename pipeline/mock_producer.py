@@ -5,6 +5,7 @@ with some mock tweets
 
 from kafka import KafkaProducer
 import json
+import uuid
 from datetime import datetime
 import time
 
@@ -13,38 +14,12 @@ producer = KafkaProducer(
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 
-
 example = [
-    {
-        "tweet_id": "123e4567-e89b-12d3-a456-426614174000",
-        "text": "hi",
-        "author": "juana",
-        "timestamp": datetime.now().isoformat()
-    },
-    {
-        "tweet_id": "123e4567-e89b-12d3-a456-426614174001",
-        "text": "hi",
-        "author": "juana",
-        "timestamp": datetime.now().isoformat()
-    },
-    {
-        "tweet_id": "123e4567-e89b-12d3-a456-426614174002",
-        "text": "hi",
-        "author": "juana",
-        "timestamp": datetime.now().isoformat()
-    },
-    {
-        "tweet_id": "123e4567-e89b-12d3-a456-426614174003",
-        "text": "hi",
-        "author": "juana",
-        "timestamp": datetime.now().isoformat()
-    },
-    {
-        "tweet_id": "123e4567-e89b-12d3-a456-426614174004",
-        "text": "hi",
-        "author": "juana",
-        "timestamp": datetime.now().isoformat()
-    },
+    {"tweet_id": str(uuid.uuid4()), "text": "I absolutely love this, best day ever!", "author": "alice", "timestamp": datetime.now().isoformat()},
+    {"tweet_id": str(uuid.uuid4()), "text": "This is terrible, completely broken and awful", "author": "bob", "timestamp": datetime.now().isoformat()},
+    {"tweet_id": str(uuid.uuid4()), "text": "The meeting is at 3pm tomorrow", "author": "carol", "timestamp": datetime.now().isoformat()},
+    {"tweet_id": str(uuid.uuid4()), "text": "Just woke up, going to make coffee", "author": "dave", "timestamp": datetime.now().isoformat()},
+    {"tweet_id": str(uuid.uuid4()), "text": "Absolutely disgusted by this behavior, unacceptable!", "author": "eve", "timestamp": datetime.now().isoformat()},
 ]
 
 topic = "raw-tweets"
@@ -55,4 +30,3 @@ for i, tweet in enumerate(example, start=1):
     time.sleep(1.5)
 
 producer.flush()
-

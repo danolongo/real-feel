@@ -5,6 +5,10 @@ Build an agentic Twitter/X analysis platform focused on bot detection and sentim
 
 The bot detection model (rf.v1.0.0) is already trained — RoBERTa-based, binary classification, saved as `.pt`.
 
+⚠️ **Model quality issue (rf.v1.0.0):** Model is heavily biased toward predicting HUMAN (~99% confidence) on all test inputs. Root cause: training data imbalance (82% human / 18% bot) and likely insufficient generalization. ONNX export and inference pipeline are confirmed correct — PyTorch and ONNX outputs match exactly. Issue is the model itself.
+- TODO: Retrain with better-balanced data and/or different dataset sources
+- TODO: Consider architecture changes (e.g. use pretrained RoBERTa backbone via HuggingFace instead of custom transformer from scratch)
+
 ## Architecture Overview
 
 ```
