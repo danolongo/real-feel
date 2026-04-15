@@ -109,7 +109,29 @@ def embedding(text: str) -> list:
     mask = encoded["attention_mask"].unsqueeze(-1).float()
     pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1)
     return pooled[0].numpy().astype(float).tolist()
-    
+
+def write_to_postgres(batch_df, batch_id):
+    import psycopg2
+    conn = psycopg2.connect(
+        host="localhost", port=5433,
+        dbname="realfeel", user="realfeel", password="realfeel"
+    )
+    cursor = conn.cursor()
+
+    for row in batch_df.collect():
+        cursor.execute(
+            """
+            INSERT INTO tweets (tweet_id, text, author, timestamp, bot_prob,
+  is_bot, sentiment, embedding)
+              VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+              ON CONFLICT (tweet_id) DO NOTHING
+            """, (row.tweet_id, row.text, row.author, row.timestamp,
+                row.bot_prob, row.is_bot, row.sentiment, str(row.embedding))
+        )
+
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 # --- Spark session ---
 
@@ -148,8 +170,7 @@ tweets = raw \
     .withColumn("embedding", embedding(col("text")))
 
 query = tweets.writeStream \
-    .format("console") \
-    .option("truncate", False) \
+    .foreachBatch(write_to_postgres) \
     .start()
 
 query.awaitTermination()

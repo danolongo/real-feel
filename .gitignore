@@ -1,1 +1,16 @@
 .venv
+__pycache__
+
+# model artifacts
+model/*.pt
+model/*.onnx
+model/*.onnx.data
+
+# lambda binary — cross-compiled for Linux, rebuild before testing
+api/bootstrap
+
+# Rust build artifacts
+api/target/
+
+# SAM build artifacts
+api/.aws-sam/

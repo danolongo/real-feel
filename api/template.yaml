@@ -1,0 +1,32 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Globals:
+  Function:
+    Timeout: 30
+    Environment:
+      Variables:
+        KAFKA_BROKERS: "localhost:9092"
+        DYNAMODB_TABLE: "queries"
+        AWS_ENDPOINT_URL: "http://localhost:4566"
+
+Resources:
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: bootstrap
+      Runtime: provided.al2023
+      Architectures:
+        - arm64
+      Events:
+        SubmitQuery:
+          Type: Api
+          Properties:
+            Path: /query
+            Method: post
+        GetResults:
+          Type: Api
+          Properties:
+            Path: /query/{id}/results
+            Method: get
