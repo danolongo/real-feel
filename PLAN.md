@@ -168,7 +168,10 @@ real-feel-crawler/          # Separate repo — crawler microservice
 2. **Supabase setup** — Create project, enable pgvector extension, create tables for tweets & temporal
 3. ⏳ **Crawler** (separate repo) — Rust service that scrapes X and produces to Kafka "raw-tweets" — NOT YET STARTED
 4. ✅ **PySpark pipeline** — Locally test: consume raw tweets, run all 4 models, write to local PostgreSQL
-5. **Lambda API** — Locally test with SAM: submit queries to Kafka, poll DynamoDB/PostgreSQL
+5. ⏳ **Lambda API** — Locally test with SAM: submit queries to Kafka, poll DynamoDB/PostgreSQL
+   - ✅ POST /query — parses body, generates query_id, writes to DynamoDB (status: processing), returns 202
+   - ✅ POST /query — publish to Kafka "queries" topic
+   - ⏳ GET /query/{id}/results — poll DynamoDB, fetch results from PostgreSQL
 6. **End-to-end testing** — Full pipeline working locally: query → crawler → Spark → PostgreSQL → results
 7. **Deploy to AWS** — EC2 Kafka broker + EMR Spot Spark cluster + Lambda + Supabase
 8. **Semantic search** — k-NN queries via pgvector working end-to-end

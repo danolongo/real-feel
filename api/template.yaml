@@ -6,9 +6,9 @@ Globals:
     Timeout: 30
     Environment:
       Variables:
-        KAFKA_BROKERS: "localhost:9092"
+        KAFKA_BROKERS: "kafka:9093"
         DYNAMODB_TABLE: "queries"
-        AWS_ENDPOINT_URL: "http://localhost:4566"
+        AWS_ENDPOINT_URL: "http://host.docker.internal:4566"
 
 Resources:
   ApiFunction:
