@@ -1,7 +1,7 @@
 # Real Feel — Project Plan
 
 ## Context
-Build an agentic Twitter/X analysis platform focused on bot detection and sentiment analysis. Users submit natural language queries, a crawler collects tweets (no X API — scraping only), a trained bot detection model classifies them, sentiment analysis enriches them, and results are served with semantic search and temporal divergence analysis. Think exa.ai but for bot/sentiment intelligence on X.
+Build an agentic Twitter/X analysis platform focused on bot detection. Users submit natural language queries, a crawler collects tweets (no X API — scraping only), a trained bot detection model classifies them, and results are served with semantic search and temporal divergence analysis. Think exa.ai but for bot intelligence on X.
 
 The bot detection model (rf.v1.0.0) is already trained — RoBERTa-based, binary classification, saved as `.pt`.
 
@@ -26,7 +26,6 @@ User → AWS API Gateway → Rust Lambda
                     EMR Spot Cluster (on-demand)
                     PySpark job (launch when needed)
                     ├─ Bot detection (ONNX)
-                    ├─ Sentiment analysis (RoBERTa)
                     ├─ Embedding (MiniLM)
                     └─ Temporal tagging
                                  ↓
@@ -53,7 +52,6 @@ User → AWS API Gateway → Rust Lambda
 | Crawler | Rust (async reqwest + serde) | GraphQL scraping primary, Playwright sidecar fallback |
 | ML Pipeline | PySpark (EMR Spot on-demand) | Launch clusters only when running queries; $5-15/month |
 | Bot Model | ONNX (exported from .pt) | Run in PySpark UDFs via onnxruntime |
-| Sentiment Model | cardiffnlp/twitter-roberta-base-sentiment-latest | Same RoBERTa family as bot model |
 | Embedding Model | all-MiniLM-L6-v2 | Encodes tweet text → vector (384 dims) for semantic similarity search |
 | Search & Storage | Supabase PostgreSQL + pgvector | Managed PostgreSQL; pgvector for k-NN semantic search; free tier (~500MB) |
 | Optional Archive | S3 (Parquet via Spark) | Long-term storage; optional for learning |
@@ -96,12 +94,11 @@ Kafka "queries": { query_id: "q123", search: "AI bots", count: 500 }
 ### 3. PySpark Pipeline (EMR Spot, On-Demand)
 **Launched only when needed:**
 - Triggered by Kafka "raw-tweets" messages
-- Per each tweet received, runs 4 enrichment stages in parallel:
+- Per each tweet received, runs 3 enrichment stages in parallel:
   1. **Bot detection** — tokenize text with HuggingFace, run ONNX model, output `is_bot`, `bot_probability`
-  2. **Sentiment analysis** — same RoBERTa tokenizer, output `sentiment` (positive/negative/neutral) + confidence scores
-  3. **Embedding** — encode tweet text with MiniLM model → 384-dimensional vector for semantic search
-  4. **Temporal tagging** — add time bucket, track for rolling averages per (query, is_bot) pair
-- Writes enriched tweet to Kafka "enriched-tweets" topic: `{ tweet_id, text, is_bot, bot_probability, sentiment, embedding_vector, ... }`
+  2. **Embedding** — encode tweet text with MiniLM model → 384-dimensional vector for semantic search
+  3. **Temporal tagging** — add time bucket, track for rolling averages per (query, is_bot) pair
+- Writes enriched tweet to Kafka "enriched-tweets" topic: `{ tweet_id, text, is_bot, bot_probability, embedding_vector, ... }`
 - Sinks to Supabase PostgreSQL (for search via pgvector) and optionally S3 Parquet (archive)
 
 **Example enrichment:**
@@ -109,7 +106,6 @@ Kafka "queries": { query_id: "q123", search: "AI bots", count: 500 }
 Input:  { tweet_id: "1234", text: "AI is great", author: "@bob" }
 Output: { tweet_id: "1234", text: "AI is great", author: "@bob", 
           is_bot: false, bot_probability: 0.15,
-          sentiment: "positive", sentiment_scores: { pos: 0.9, neg: 0.05, neutral: 0.05 },
           embedding_vector: [0.42, -0.15, 0.88, ...] }
 ```
 
@@ -120,8 +116,8 @@ Output: { tweet_id: "1234", text: "AI is great", author: "@bob",
   - User query "what do people think about AI?" → embed query → pgvector k-NN returns closest vectors
   - Benefit: catches synonyms, related concepts, not just keyword matches
 - Table: `temporal` — pre-aggregated time-series data
-  - Stores: `{ query, timestamp, human_sentiment_avg, bot_sentiment_avg, human_count, bot_count }`
-  - Enables: temporal divergence graphs (when did bots turn negative vs humans?)
+  - Stores: `{ query, timestamp, human_count, bot_count }`
+  - Enables: temporal divergence graphs (bot vs human activity over time)
 - **Free tier:** 500MB database (enough for ~250K enriched tweets for learning)
 
 ### 5. LLM Query Layer (Phase 2)

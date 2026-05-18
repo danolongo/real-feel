@@ -8,11 +8,8 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json, udf
 from pyspark.sql.types import StructType, StructField, StringType, FloatType, BooleanType, ArrayType
 
-# --- Lazy singletons per worker process ---
-
 _ort_session = None
 _tokenizer = None
-_sentiment_pipeline = None
 _sentence_embedding = None
 
 ONNX_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../model/rf.v1.0.0.onnx"))
@@ -28,17 +25,6 @@ def _get_bot_model():
         _tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
         _ort_session = ort.InferenceSession(ONNX_PATH)
     return _ort_session, _tokenizer
-
-def _get_sentiment_model():
-    global _sentiment_pipeline
-    if _sentiment_pipeline is None:
-        import torch
-        from transformers import AutoModelForSequenceClassification, AutoTokenizer
-        tok = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
-        mdl = AutoModelForSequenceClassification.from_pretrained(TOKENIZER_NAME)
-        mdl.eval()
-        _sentiment_pipeline = (mdl, tok)
-    return _sentiment_pipeline
 
 def _preprocess(text: str) -> str:
     text = URL_RE.sub('http://url.removed', text)
@@ -63,27 +49,7 @@ def bot_probability(text: str) -> float:
     })[0]
     exp = np.exp(logits - logits.max())
     probs = exp / exp.sum()
-    return float(probs[0][1])  # P(bot)
-
-@udf(returnType=StringType())
-def sentiment(text: str) -> str:
-    if not text:
-        return "neutral"
-    import torch
-    import torch.nn.functional as F
-    model, tokenizer = _get_sentiment_model()
-    encoded = tokenizer(
-        _preprocess(text),
-        max_length=128,
-        padding="max_length",
-        truncation=True,
-        return_tensors="pt",
-    )
-    with torch.no_grad():
-        logits = model(**encoded).logits
-    probs = F.softmax(logits, dim=-1)[0]
-    label_id = probs.argmax().item()
-    return model.config.id2label[label_id].lower()
+    return float(probs[0][1])
 
 def _get_embedding_model():
     global _sentence_embedding
@@ -104,8 +70,7 @@ def embedding(text: str) -> list:
     mdl, tok = _get_embedding_model()
     encoded = tok(_preprocess(text), max_length=128, padding="max_length", truncation=True, return_tensors="pt")
     with torch.no_grad():
-        hidden = mdl(**encoded).last_hidden_state  # [1, seq_len, 384]
-    # mean pool over non-padding tokens
+        hidden = mdl(**encoded).last_hidden_state
     mask = encoded["attention_mask"].unsqueeze(-1).float()
     pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1)
     return pooled[0].numpy().astype(float).tolist()
@@ -114,26 +79,23 @@ def write_to_postgres(batch_df, batch_id):
     import psycopg2
     conn = psycopg2.connect(
         host="localhost", port=5433,
-        dbname="realfeel", user="realfeel", password="realfeel"
+        dbname="realfeel", user="realfeel", password=os.environ["POSTGRES_PASSWORD"]
     )
     cursor = conn.cursor()
 
     for row in batch_df.collect():
         cursor.execute(
             """
-            INSERT INTO tweets (tweet_id, text, author, timestamp, bot_prob,
-  is_bot, sentiment, embedding)
-              VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO tweets (tweet_id, text, author, timestamp, bot_prob, is_bot, embedding)
+              VALUES (%s, %s, %s, %s, %s, %s, %s)
               ON CONFLICT (tweet_id) DO NOTHING
             """, (row.tweet_id, row.text, row.author, row.timestamp,
-                row.bot_prob, row.is_bot, row.sentiment, str(row.embedding))
+                row.bot_prob, row.is_bot, str(row.embedding))
         )
 
     conn.commit()
     cursor.close()
     conn.close()
-
-# --- Spark session ---
 
 spark = SparkSession.builder \
     .appName("real-feel-pipeline") \
@@ -142,16 +104,12 @@ spark = SparkSession.builder \
 
 spark.sparkContext.setLogLevel("WARN")
 
-# --- Schema ---
-
 tweet_schema = StructType([
     StructField("tweet_id", StringType()),
     StructField("text", StringType()),
     StructField("author", StringType()),
     StructField("timestamp", StringType()),
 ])
-
-# --- Stream ---
 
 raw = spark.readStream \
     .format("kafka") \
@@ -166,7 +124,6 @@ tweets = raw \
     .select("t.*") \
     .withColumn("bot_prob", bot_probability(col("text"))) \
     .withColumn("is_bot", col("bot_prob") > 0.5) \
-    .withColumn("sentiment", sentiment(col("text"))) \
     .withColumn("embedding", embedding(col("text")))
 
 query = tweets.writeStream \
