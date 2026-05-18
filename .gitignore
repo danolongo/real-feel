@@ -1,16 +1,45 @@
+# Python
 .venv
-__pycache__
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.pytest_cache/
 
-# model artifacts
+# Model artifacts
 model/*.pt
 model/*.onnx
 model/*.onnx.data
 
-# lambda binary — cross-compiled for Linux, rebuild before testing
+# Lambda binary — cross-compiled for Linux, rebuild before deploy
 api/bootstrap
 
 # Rust build artifacts
 api/target/
+Cargo.lock
 
 # SAM build artifacts
 api/.aws-sam/
+samconfig.toml
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Data files
+**/*.parquet
+**/*.csv
+**/*.jsonl
+
+# OS
+.DS_Store
+
+# Claude
+.claude/
+.claudeignore
+
+# Infra state (Terraform/CDK)
+infra/.terraform/
+infra/terraform.tfstate
+infra/terraform.tfstate.backup
+infra/cdk.out/
