@@ -36,7 +36,6 @@ samconfig.toml
 
 # Claude
 .claude/
-.claudeignore
 
 # Infra state (Terraform/CDK)
 infra/.terraform/
