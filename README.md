@@ -1,34 +1,23 @@
-# real-feel
+# Real Feel
 
-Agentic Twitter/X analysis platform for bot detection. Users submit natural language queries; a crawler scrapes tweets (no X API), a PySpark pipeline enriches them with bot probability and semantic embeddings, and results are served via a Rust Lambda polling API.
+Real Feel finds bots on X. A user sends a query. Real Feel finds matching tweets, and Clef classifies the account behind each tweet as bot or human. The API returns the result.
 
-## Stack
+Real Feel is mid-refactor into an all-Rust system on AWS. [docs/refactor-plan.md](docs/refactor-plan.md) holds the plan and the milestones. M0 finished. The API serves `GET /health`, and CI guards `main`.
 
-| Layer | Tech |
-|-------|------|
-| API | Rust + AWS Lambda |
-| Message broker | Kafka (self-hosted) |
-| ML pipeline | PySpark + ONNX + MiniLM |
-| Storage | PostgreSQL + pgvector |
-| Local infra | Docker Compose + LocalStack |
+## Start
 
-## Local Dev
-
-Copy `.env.example` to `.env` and fill in values.
+You need `rustup` and Docker. From the repository root:
 
 ```bash
-# Terminal 1 — all services
-docker compose up
-
-# Terminal 2 — Lambda (from api/)
-sam local start-api --docker-network real-feel_default
-
-# Terminal 3 — PySpark pipeline (from api/)
-uv run pipeline.py
+cp .env.example .env        # then set POSTGRES_PASSWORD
+docker compose up -d
+cargo run -p api
 ```
 
-Requires Java 17 for PySpark: `export JAVA_HOME=/opt/homebrew/opt/openjdk@17`
+[docs/local-dev.md](docs/local-dev.md) lists every step and the checks.
 
-## Status
+## Contribute
 
-Early development. POST `/query` → Kafka → PySpark enrichment → PostgreSQL working locally. Crawler and AWS deploy not yet started.
+- Follow [docs/writing-rules.md](docs/writing-rules.md) in code comments, commits, and PRs.
+- Use the terms in [docs/glossary.md](docs/glossary.md).
+- Open one PR for each task.
