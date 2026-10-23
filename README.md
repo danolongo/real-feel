@@ -1,6 +1,6 @@
 # Real Feel
 
-Real Feel finds bots on X. A user sends a query. Real Feel finds matching tweets, and Clef classifies the account behind each tweet as bot or human. The API returns the result.
+Real Feel finds bots on X. A user sends a query. Real Feel finds matching tweets, and Clef-flash classifies the account behind each tweet as bot or human. The API returns the result.
 
 Real Feel is mid-refactor into an all-Rust system on AWS. [docs/refactor-plan.md](docs/refactor-plan.md) holds the plan and the milestones. M0 finished. The API serves `GET /health`, and CI guards `main`.
 

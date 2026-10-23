@@ -22,12 +22,12 @@ This plan rebuilds Real Feel as an all-Rust system on AWS.
 
 ## Goal
 
-A user sends a query. Real Feel finds matching tweets on X. Clef classifies each tweet's account as bot or human. The API returns the result.
+A user sends a query. Real Feel finds matching tweets on X. Clef-flash classifies each tweet's account as bot or human. The API returns the result.
 
 You build this system to learn. You also build it to run at serious load. Two outcomes matter equally:
 
 - **The system.** It holds up under load tests. It autoscales. Datadog shows you every part.
-- **The model operations.** You run Clef on your own GPU. You measure accuracy with an eval set. You measure speed with benchmarks. You compare metadata versions.
+- **The model operations.** You run Clef-flash on your own GPU. You measure accuracy with an eval set. You measure speed with benchmarks. You compare metadata versions.
 
 ## Target architecture
 
@@ -51,7 +51,7 @@ User ──HTTP──▶ API (Rust, axum, EC2) ──────────▶
         worker, role: classifier ─────────────────────┘
           ├─ builds model inputs (metadata version, question version)
           ├─ classifier ──▶ inference backend
-          │                  ├─ hosted backend: Clef on Workers AI
+          │                  ├─ hosted backend: Clef-flash on Workers AI
           │                  └─ self-hosted backend: inference server on GPU EC2
           │                       ├─ reference server (Python)
           │                       └─ candle server (Rust)
@@ -93,16 +93,16 @@ Each row becomes a decision record in M0. "Agreed" rows come from the design dis
 | # | Decision | Reason | Status |
 |---|----------|--------|--------|
 | D1 | The scraper uses Firecrawl. The scraper hides Firecrawl behind `trait Scraper`. | Writing an X scraper is a project of its own. The plan puts the effort into the system. The trait lets you swap tools. | Agreed |
-| D2 | Clef classifies tweets. Clef-flash is not used. | Clef is more accurate. Its open weights (Apache-2.0) let you run it yourself. | Agreed |
+| D2 | Clef-flash classifies tweets. Clef is not used. | Clef-flash costs less for each input token and fits one cheap GPU. If the eval set shows it is not accurate enough, you revisit this decision. | Agreed |
 | D3 | Metadata versions and question versions are first-class. Every prediction stores them. | Metadata decides accuracy as much as the model does. You must compare versions with evidence. | Agreed |
 | D4 | SQS replaces Kafka. | Real Feel needs jobs that run later and retry. It does not need replay, many consumers, or high-volume streams. SQS needs no servers. | Agreed |
 | D5 | Rust workers replace PySpark. | Each tweet costs one HTTP call and one database write. That is a job queue, not big-data work. | Agreed |
-| D6 | Rust for the API, workers, eval tooling, and shared types. Python only for the reference server. | One language for every component you write. Rust types give compile-time checks across components. Python stays where Clef's own code lives. | Agreed |
+| D6 | Rust for the API, workers, eval tooling, and shared types. Python only for the reference server. | One language for every component you write. Rust types give compile-time checks across components. Python stays where Clef-flash's own code lives. | Agreed |
 | D7 | The API and workers run on EC2. | Fixed capacity makes load tests measure Real Feel's code, not Lambda's scaling. | Agreed |
 | D8 | Postgres holds query status. DynamoDB goes away. | One database is simpler than two. Postgres handles the load. | Agreed |
 | D9 | One Postgres instance, with connection pooling in M7. Sharding waits for M8. | A million tweets with embeddings fits in a few GB. Load tests must prove a need before you shard. | Agreed |
 | D10 | No load balancer until M7. Then an ALB with an Auto Scaling Group. | One API instance needs no load balancer. Scaling experiments need one. | Agreed |
-| D11 | You run Clef on your own GPU instance (M5). | Learning goal. You own the model operations end to end. | Agreed |
+| D11 | You run Clef-flash on your own GPU instance (M5). | Learning goal. You own the model operations end to end. | Agreed |
 | D12 | Datadog for observability. The code emits OpenTelemetry. | The Datadog student plan is free for 2 years and covers 10 hosts. OpenTelemetry keeps the code vendor-neutral. | Agreed |
 | D13 | Two queues: `scraper-jobs` and `classifier-jobs`. | Scraping and classifying have different speeds and costs. Two queues let each worker role autoscale on its own queue. | Proposed |
 | D14 | Postgres access through `sqlx`. | Pure Rust. `sqlx` checks SQL against the schema at compile time. | Proposed |
@@ -120,9 +120,9 @@ You make each decision before its deadline. Each decision ends in a decision rec
 | O2 | Which embedding model, and how many dimensions? | A Workers AI embedding model; a small embedding model that runs inside the worker | M2, task 2.5 |
 | O3 | Which eval set? | TwiBot-22; Cresci-2017; both | M4, task 4.1 |
 | O4 | Which bot threshold? | 0.5 by default; tuned from the eval report | M4, task 4.7 |
-| O5 | How does Clef's schema head run outside Cloudflare? | Hugging Face `transformers` with Cloudflare's code; custom code | M5, task 5.1 |
-| O6 | Which variant does the self-hosted backend run? | `int8` on g6e.xlarge; `int4` on g6.xlarge | M5, task 5.7 |
-| O7 | Does `candle` support Clef's base architecture? | Use `candle` as is; add the architecture to `candle`; stop M6 | M6, task 6.1 |
+| O5 | How does Clef-flash's schema head run outside Cloudflare? | Hugging Face `transformers` with Cloudflare's code; custom code | M5, task 5.1 |
+| O6 | Which variant does the self-hosted backend run? | `bf16`, `int8`, or `int4`, all on g6.xlarge | M5, task 5.7 |
+| O7 | Does `candle` support Clef-flash's base architecture? | Use `candle` as is; add the architecture to `candle`; stop M6 | M6, task 6.1 |
 | O8 | Which server becomes the default self-hosted backend? | reference server; candle server | M6, task 6.5 |
 
 ## Repository layout
@@ -275,7 +275,7 @@ You write docs as you build. Docs ship in the same PR as the code.
 | M2 | Workers with the hosted backend | A query completes end to end locally |
 | M3 | First AWS deployment | The same flow runs on AWS, with Datadog |
 | M4 | Eval set and metadata versions | Evidence on which metadata version classifies best |
-| M5 | Self-hosted backend: reference server | Clef runs on your own GPU. Quantization cost measured. |
+| M5 | Self-hosted backend: reference server | Clef-flash runs on your own GPU. Quantization cost measured. |
 | M6 | Self-hosted backend: candle server | Rust inference server checked for parity and benchmarked |
 | M7 | Load tests and autoscaling | Measured break points. ALB, Auto Scaling Groups, SLOs. |
 | M8 | Later experiments | Sharding, semantic search, time-series analysis, query decomposition |
@@ -369,7 +369,7 @@ M3 comes before M4 on purpose. You find deployment problems while the system is 
 - [ ] **2.2** `crates/scraper`: You define `trait Scraper`. You write the Firecrawl implementation and a fixture implementation. The fixture implementation reads JSON files from `crates/scraper/fixtures/`.
 - [ ] **2.3** `crates/metadata`: You write metadata version `v1` (tweet text only) and question version `v1` (bot or human). The functions are pure: the same tweet and account always give the same model input.
 - [ ] **2.4** `crates/classifier`: You define `trait Classifier`. You write the hosted implementation and the fake. The hosted implementation:
-  - reads Cloudflare's request format for Clef and records it in the crate README
+  - reads Cloudflare's request format for Clef-flash and records it in the crate README
   - retries on `429` and `5xx` with exponential backoff and jitter
   - stays under a configured requests-per-second limit
 - [ ] **2.5** `crates/embedder`: You settle O2 with a decision record. You define `trait Embedder`. You write the hosted implementation and the fake. You add a migration that sets the `embedding` column dimension.
@@ -456,14 +456,14 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
 
 ### M5: Self-hosted backend: reference server
 
-**Goal:** Clef runs on your own GPU instance. Workers can classify through it. You know what quantization costs in accuracy.
+**Goal:** Clef-flash runs on your own GPU instance. Workers can classify through it. You know what quantization costs in accuracy.
 
 **Tasks**
 
-- [ ] **5.1** **Spike:** You read Clef's model card and code. You find how the schema head runs. You settle O5 in a decision record.
+- [ ] **5.1** **Spike:** You read Clef-flash's model card and code. You confirm that Cloudflare publishes the weights, and under which licence. You find how the schema head runs. You settle O5 in a decision record.
 - [ ] **5.2** `crates/types`: You define the inference server contract: `POST /v1/classify` takes a batch and returns predictions with a model version. The types generate JSON Schema.
 - [ ] **5.3** `inference/reference`: You build the reference server in Python with `uv`. It generates its request and response models from the JSON Schema. It applies dynamic batching with a maximum batch size and a maximum wait.
-- [ ] **5.4** `inference/reference`: You load Clef in the `bf16`, `int8`, and `int4` variants. The variant is a setting.
+- [ ] **5.4** `inference/reference`: You load Clef-flash in the `bf16`, `int8`, and `int4` variants. The variant is a setting.
 - [ ] **5.5** `infra/terraform`: You add a GPU module. It holds a launch template with an NVIDIA Deep Learning AMI, Spot instances, and an Auto Scaling Group of size 0 or 1. A script on the instance shuts the instance down after a set idle time.
 - [ ] **5.6** `crates/classifier`: You write the self-hosted implementation. `CLASSIFIER_BACKEND` selects `hosted`, `self_hosted`, or `fake`.
 - [ ] **5.7** You run the same experiments on each variant and on the hosted backend. You settle O6. The eval report shows:
@@ -491,8 +491,8 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
 
 **Tasks**
 
-- [ ] **6.1** **Spike:** You check whether `candle` supports Clef's base architecture and quantized weights. You list what you must write yourself. You settle O7 in a decision record. If the work is too large, M6 stops here and the decision record says why.
-- [ ] **6.2** `crates/inference`: You load Clef's weights with `candle`. You write the schema head.
+- [ ] **6.1** **Spike:** You check whether `candle` supports Clef-flash's base architecture and quantized weights. You list what you must write yourself. You settle O7 in a decision record. If the work is too large, M6 stops here and the decision record says why.
+- [ ] **6.2** `crates/inference`: You load Clef-flash's weights with `candle`. You write the schema head.
 - [ ] **6.3** `crates/inference`: You serve the same `POST /v1/classify` contract. You write dynamic batching with tokio.
 - [ ] **6.4** You write parity tests. Both servers classify the same model inputs. The tests pass when every bot probability differs by less than a tolerance you set in the spike.
 - [ ] **6.5** You run the M5 benchmark harness on the same instance type. You settle O8 in a decision record.
@@ -561,8 +561,9 @@ You plan each of these when M7 closes. Each becomes its own spike and decision r
 |------|--------|-------------|
 | Firecrawl cannot fetch X pages | M2 stalls | Task 2.1 checks this first. `trait Scraper` lets you swap tools. |
 | Firecrawl does not return the metadata that `v2`+ need | M4 compares versions that production cannot fill | Task 4.8 lists the gaps. The eval set has the fields even if live data does not. |
-| Clef's schema head needs custom code | M5 takes longer | Task 5.1 answers this before you build anything. |
-| `candle` lacks Clef's base architecture | M6 grows large | Task 6.1 can stop M6 with a decision record. |
+| Cloudflare does not publish the Clef-flash weights | M5 and M6 stop | Task 5.1 checks the licence before you build anything. |
+| Clef-flash's schema head needs custom code | M5 takes longer | Task 5.1 answers this before you build anything. |
+| `candle` lacks Clef-flash's base architecture | M6 grows large | Task 6.1 can stop M6 with a decision record. |
 | AWS approves GPU quota slowly | M5 waits | Task 0.13 asks in M0. |
 | GPU costs run high | Budget overrun | Spot instances, idle shutdown, an Auto Scaling Group minimum of 0, a budget alert. |
 | Paid service costs run high in tests | Budget overrun | CI uses fakes. Only `nightly.yml` and manual runs call paid services. The `eval` binary prints the cost first. |

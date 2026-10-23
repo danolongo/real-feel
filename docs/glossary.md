@@ -27,11 +27,11 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | account | noun | The X profile that posts a tweet. | user, profile, author |
 | metadata | noun | The account fields and tweet fields, other than tweet text, that a model input carries. Examples: account age, follower count, posting times. | features, attributes, context |
 | metadata version | noun | An identifier (`v1`, `v2`, …) for one exact set of metadata fields and one exact text layout. | schema, shape, feature set |
-| question version | noun | An identifier (`v1`, `v2`, …) for one exact wording of the question that Clef answers. | prompt version |
-| model input | noun | Everything the classifier sends to Clef for one tweet: tweet text, metadata, and the question. | payload, prompt |
+| question version | noun | An identifier (`v1`, `v2`, …) for one exact wording of the question that Clef-flash answers. | prompt version |
+| model input | noun | Everything the classifier sends to Clef-flash for one tweet: tweet text, metadata, and the question. | payload, prompt |
 | bot | noun | An account that software runs. | fake account |
 | human | noun | An account that a person runs. | real account, organic account |
-| bot probability | noun | A number from 0 to 1. It says how likely Clef thinks the account behind a tweet is a bot. Field name: `p_bot`. | bot score, confidence, score |
+| bot probability | noun | A number from 0 to 1. It says how likely Clef-flash thinks the account behind a tweet is a bot. Field name: `p_bot`. | bot score, confidence, score |
 | bot threshold | noun | The bot probability at or above which the API reports an account as a bot. Field name: `is_bot`. | cutoff |
 | prediction | noun | The stored output for one model input: bot probability, model version, metadata version, question version. | decision, score, classification |
 | result | noun | What the API returns for a query whose status is `done`: tweets, accounts, and predictions. | response, output |
@@ -47,10 +47,10 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | scraper | noun | The worker part that fetches tweets and accounts from X. Code: `trait Scraper`. | crawler, fetcher |
 | classifier | noun | The worker part that sends batches to an inference backend and returns predictions. Code: `trait Classifier`. | detector, model client |
 | embedder | noun | The worker part that turns tweet text into embeddings. Code: `trait Embedder`. | encoder |
-| inference backend | noun | Any system that runs Clef for the classifier. Kinds: hosted backend, self-hosted backend, fake. | provider, model server |
-| hosted backend | noun | Clef running on Cloudflare Workers AI. Cloudflare runs the GPUs. | Cloudflare API, managed model |
-| self-hosted backend | noun | Clef running on an inference server on a Real Feel GPU instance. | local model, own model |
-| inference server | noun | An HTTP server on a GPU instance that serves Clef. Kinds: reference server, candle server. | model server, inference service |
+| inference backend | noun | Any system that runs Clef-flash for the classifier. Kinds: hosted backend, self-hosted backend, fake. | provider, model server |
+| hosted backend | noun | Clef-flash running on Cloudflare Workers AI. Cloudflare runs the GPUs. | Cloudflare API, managed model |
+| self-hosted backend | noun | Clef-flash running on an inference server on a Real Feel GPU instance. | local model, own model |
+| inference server | noun | An HTTP server on a GPU instance that serves Clef-flash. Kinds: reference server, candle server. | model server, inference service |
 | reference server | noun | The Python inference server in `inference/reference`. It defines correct output. | Python server, oracle |
 | candle server | noun | The Rust inference server in `crates/inference`. It uses the `candle` library. | Rust server |
 | Postgres | noun | The single database. It stores queries, tweets, accounts, predictions, and embeddings. On AWS, Postgres runs on RDS. | DB, the database |
@@ -68,10 +68,10 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 
 | Term | Part of speech | Definition | Do not use |
 |------|----------------|------------|------------|
-| Clef | noun | Cloudflare's 27B open-weight decision model. Real Feel uses it to classify tweets. | the LLM, the model |
-| Clef-flash | noun | Cloudflare's 9B decision model. Real Feel does not use it. | — |
-| variant | noun | One numeric precision of Clef's weights. Variants: `bf16`, `int8`, `int4`. | build, quant, version |
-| model version | noun | An identifier for one inference backend running one variant. Examples: `clef-hosted`, `clef-int8-reference`, `clef-int8-candle`. | model id, checkpoint |
+| Clef-flash | noun | Cloudflare's 9B decision model. Real Feel uses it to classify tweets. | the LLM, the model |
+| Clef | noun | Cloudflare's 27B decision model. Real Feel does not use it. | — |
+| variant | noun | One numeric precision of Clef-flash's weights. Variants: `bf16`, `int8`, `int4`. | build, quant, version |
+| model version | noun | An identifier for one inference backend running one variant. Examples: `clef-flash-hosted`, `clef-flash-int8-reference`, `clef-flash-int8-candle`. | model id, checkpoint |
 | embedding model | noun | The model that the embedder calls. | encoder |
 
 ## Quality and process
