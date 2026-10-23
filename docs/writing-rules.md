@@ -26,7 +26,7 @@ Three rules:
 | The crawler sends the request to Kafka. | The scraper sends the job to the `classifier-jobs` queue. | "crawler", "request" and "Kafka" are not Real Feel terms. |
 | Label each tweet. | Attach a label to each tweet. | "label" is a noun only. |
 | Batch the inputs. | Group the model inputs into batches. | "batch" is a noun only. |
-| The model returns a score. | Clef returns a bot probability. | "score" is banned. "the model" is ambiguous. |
+| The model returns a score. | Clef-flash returns a bot probability. | "score" is banned. "the model" is ambiguous. |
 | It retries until it fails. | The worker retries the job until the job reaches the DLQ. | "it" pointed to two things. |
 
 <!-- vale on -->

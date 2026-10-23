@@ -39,7 +39,7 @@ swap:
   dummy: fake
   mock data: fixture
   sample data: fixture
-  the llm: Clef
+  the llm: Clef-flash
   model id: model version
   checkpoint: model version
   quant: variant

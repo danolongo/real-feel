@@ -1,6 +1,6 @@
 # Real Feel: Claude context
 
-Real Feel finds bots on X. A user sends a query. The scraper fetches tweets through Firecrawl. Clef classifies the account behind each tweet. The API returns the result. There is no X API.
+Real Feel finds bots on X. A user sends a query. The scraper fetches tweets through Firecrawl. Clef-flash classifies the account behind each tweet. The API returns the result. There is no X API.
 
 The system is an all-Rust workspace on AWS. `docs/refactor-plan.md` holds the plan, the milestones, and the gates. M0 finished. The next milestone is M1.
 
