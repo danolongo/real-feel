@@ -1,3 +1,6 @@
+# Rust
+target/
+
 # Python
 .venv
 **/__pycache__/
@@ -5,21 +8,10 @@
 **/*.pyo
 .pytest_cache/
 
-# Model artifacts
+# Model weights (kept on disk, outside git)
 model/*.pt
 model/*.onnx
 model/*.onnx.data
-
-# Lambda binary — cross-compiled for Linux, rebuild before deploy
-api/bootstrap
-
-# Rust build artifacts
-api/target/
-Cargo.lock
-
-# SAM build artifacts
-api/.aws-sam/
-samconfig.toml
 
 # Env / secrets
 .env
@@ -35,10 +27,13 @@ samconfig.toml
 .DS_Store
 
 # Claude
-.claude/
+.claude/*
+!.claude/CLAUDE.md
 
-# Infra state (Terraform/CDK)
-infra/.terraform/
-infra/terraform.tfstate
-infra/terraform.tfstate.backup
-infra/cdk.out/
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+
+# Decision records (local only)
+docs/decisions/

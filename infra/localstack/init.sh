@@ -1,7 +1,18 @@
 #!/bin/bash
-awslocal dynamodb create-table \
-  --table-name queries \
-  --attribute-definitions AttributeName=query_id,AttributeType=S \
-  --key-schema AttributeName=query_id,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region us-east-1
+set -euo pipefail
+
+REGION=us-east-1
+ACCOUNT_ID=000000000000
+MAX_RECEIVE_COUNT=5
+
+create_queue_pair() {
+  local name=$1
+  local dlq_arn="arn:aws:sqs:${REGION}:${ACCOUNT_ID}:${name}-dlq"
+
+  awslocal sqs create-queue --queue-name "${name}-dlq" --region "$REGION"
+  awslocal sqs create-queue --queue-name "$name" --region "$REGION" \
+    --attributes "{\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"${dlq_arn}\\\",\\\"maxReceiveCount\\\":\\\"${MAX_RECEIVE_COUNT}\\\"}\"}"
+}
+
+create_queue_pair scraper-jobs
+create_queue_pair classifier-jobs

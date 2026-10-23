@@ -1,0 +1,12 @@
+config:
+  # Prose lines run long and tables cannot wrap.
+  MD013: false
+  # Tables use compact separator rows.
+  MD060: false
+  # The plan uses bold "Tasks" and "Gate" labels on purpose.
+  MD036: false
+  # The PR template starts at level 2 because GitHub supplies the title.
+  MD041: false
+ignores:
+  - "**/node_modules/**"
+  - "**/target/**"

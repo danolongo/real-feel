@@ -1,0 +1,91 @@
+# Glossary
+
+This file defines every Real Feel term. Each term has one definition and one part of speech.
+
+- Use the term exactly as written here.
+- Do not use the words in the "Do not use" column.
+- Add a new term here in the same PR that introduces it.
+- Name code after these terms. Write `struct Query`, not `struct Search`.
+
+See [writing-rules.md](writing-rules.md) for the full rules.
+
+## People and roles
+
+| Term | Part of speech | Definition | Do not use |
+|------|----------------|------------|------------|
+| you | pronoun | The developer who reads a Real Feel document and does the work it describes. | we, one, the developer |
+| user | noun | A person who sends queries to Real Feel. | customer, client |
+| reviewer | noun | The developer who approves a PR. | approver |
+
+## Data
+
+| Term | Part of speech | Definition | Do not use |
+|------|----------------|------------|------------|
+| query | noun | A natural-language question that a user sends to the API. Example: "what are people saying about AI?" | search, request, prompt |
+| query status | noun | The stage a query is in. Values: `queued`, `scraping`, `classifying`, `done`, `failed`. | state, progress |
+| tweet | noun | One post on X. | post, status |
+| account | noun | The X profile that posts a tweet. | user, profile, author |
+| metadata | noun | The account fields and tweet fields, other than tweet text, that a model input carries. Examples: account age, follower count, posting times. | features, attributes, context |
+| metadata version | noun | An identifier (`v1`, `v2`, …) for one exact set of metadata fields and one exact text layout. | schema, shape, feature set |
+| question version | noun | An identifier (`v1`, `v2`, …) for one exact wording of the question that Clef answers. | prompt version |
+| model input | noun | Everything the classifier sends to Clef for one tweet: tweet text, metadata, and the question. | payload, prompt |
+| bot | noun | An account that software runs. | fake account |
+| human | noun | An account that a person runs. | real account, organic account |
+| bot probability | noun | A number from 0 to 1. It says how likely Clef thinks the account behind a tweet is a bot. Field name: `p_bot`. | bot score, confidence, score |
+| bot threshold | noun | The bot probability at or above which the API reports an account as a bot. Field name: `is_bot`. | cutoff |
+| prediction | noun | The stored output for one model input: bot probability, model version, metadata version, question version. | decision, score, classification |
+| result | noun | What the API returns for a query whose status is `done`: tweets, accounts, and predictions. | response, output |
+| embedding | noun | A vector of numbers that captures the meaning of tweet text. Postgres stores it with pgvector. | vector, encoding |
+| label | noun | The known truth for one eval set item: `bot` or `human`. Never a verb. | ground truth, tag |
+
+## Components
+
+| Term | Part of speech | Definition | Do not use |
+|------|----------------|------------|------------|
+| API | noun | The Rust HTTP server in `crates/api`. It accepts queries and returns results. | backend, server, service |
+| worker | noun | A Rust process in `crates/worker`. It takes jobs from SQS. It runs one role: `scraper` or `classifier`. | consumer, processor |
+| scraper | noun | The worker part that fetches tweets and accounts from X. Code: `trait Scraper`. | crawler, fetcher |
+| classifier | noun | The worker part that sends batches to an inference backend and returns predictions. Code: `trait Classifier`. | detector, model client |
+| embedder | noun | The worker part that turns tweet text into embeddings. Code: `trait Embedder`. | encoder |
+| inference backend | noun | Any system that runs Clef for the classifier. Kinds: hosted backend, self-hosted backend, fake. | provider, model server |
+| hosted backend | noun | Clef running on Cloudflare Workers AI. Cloudflare runs the GPUs. | Cloudflare API, managed model |
+| self-hosted backend | noun | Clef running on an inference server on a Real Feel GPU instance. | local model, own model |
+| inference server | noun | An HTTP server on a GPU instance that serves Clef. Kinds: reference server, candle server. | model server, inference service |
+| reference server | noun | The Python inference server in `inference/reference`. It defines correct output. | Python server, oracle |
+| candle server | noun | The Rust inference server in `crates/inference`. It uses the `candle` library. | Rust server |
+| Postgres | noun | The single database. It stores queries, tweets, accounts, predictions, and embeddings. On AWS, Postgres runs on RDS. | DB, the database |
+| queue | noun | One SQS queue. Never a verb. Queues: `scraper-jobs`, `classifier-jobs`, and one dead-letter queue for each. | topic, stream |
+| job | noun | The content of one SQS message. Kinds: scraper job, classifier job. | task, event, message |
+| scraper job | noun | A job that tells a scraper worker to fetch tweets for one query. | scrape job, crawl job |
+| classifier job | noun | A job that tells a classifier worker to classify one batch of tweets. | classify job |
+| dead-letter queue | noun | The queue that receives a job after the job fails too many times. Short form: DLQ. | error queue |
+| batch | noun | An ordered list of model inputs that the classifier sends to an inference backend in one HTTP request. Never a verb. | chunk, group |
+| dynamic batching | noun | An inference server collecting HTTP requests for a short time and running them on the GPU together. | micro-batching |
+| fake | noun | A test version of a trait that returns fixed output and makes no network calls. Never an adjective. | mock, stub, dummy |
+| fixture | noun | Stored test data that replaces a network response. | sample data, mock data |
+
+## Models
+
+| Term | Part of speech | Definition | Do not use |
+|------|----------------|------------|------------|
+| Clef | noun | Cloudflare's 27B open-weight decision model. Real Feel uses it to classify tweets. | the LLM, the model |
+| Clef-flash | noun | Cloudflare's 9B decision model. Real Feel does not use it. | — |
+| variant | noun | One numeric precision of Clef's weights. Variants: `bf16`, `int8`, `int4`. | build, quant, version |
+| model version | noun | An identifier for one inference backend running one variant. Examples: `clef-hosted`, `clef-int8-reference`, `clef-int8-candle`. | model id, checkpoint |
+| embedding model | noun | The model that the embedder calls. | encoder |
+
+## Quality and process
+
+| Term | Part of speech | Definition | Do not use |
+|------|----------------|------------|------------|
+| eval set | noun | A fixed collection of tweets and accounts, each with a label. | test set, benchmark data |
+| experiment | noun | One pass of the eval set through one model version, one metadata version, and one question version. | eval run, trial |
+| eval report | noun | A Markdown file in `docs/reports/` that compares experiments. | results, writeup |
+| calibration | noun | How closely bot probability matches reality. A calibrated 0.8 is right 80% of the time. | confidence accuracy |
+| benchmark | noun | A fixed measurement of inference server speed: throughput and latency at set batch sizes. Never a verb. | perf test |
+| load test | noun | A k6 script that sends HTTP requests to the API at a set rate. | stress test, perf test |
+| break point | noun | The request rate at which a load test first fails its targets. | limit, ceiling |
+| milestone | noun | A numbered stage of the refactor plan (M0–M8). | phase, sprint |
+| gate | noun | The checklist that must hold true before you close a milestone. | exit criteria, acceptance |
+| spike | noun | Short, time-boxed research that answers one question and ends in a decision. | investigation, POC |
+| decision record | noun | A file in `docs/decisions/` that records one decision and its reasons. Short form: ADR. | design doc |

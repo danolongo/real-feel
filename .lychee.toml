@@ -1,0 +1,4 @@
+include_fragments = "full"
+exclude_loopback = true
+exclude_path = ["(^|/)target/"]
+max_retries = 2
