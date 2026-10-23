@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  VALE_VERSION: 3.25.1
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DavidAnson/markdownlint-cli2-action@v24
+        with:
+          globs: "**/*.md"
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: --no-progress --config .lychee.toml '**/*.md'
+          fail: true
+      - name: Install Vale
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "v${VALE_VERSION}" --repo errata-ai/vale \
+            --pattern "vale_${VALE_VERSION}_Linux_64-bit.tar.gz" --dir "$RUNNER_TEMP"
+          tar -xzf "$RUNNER_TEMP/vale_${VALE_VERSION}_Linux_64-bit.tar.gz" -C "$RUNNER_TEMP" vale
+          sudo mv "$RUNNER_TEMP/vale" /usr/local/bin/vale
+      - run: vale README.md docs crates .github .claude/CLAUDE.md
+
+  commits:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check the PR title and every commit
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: scripts/check-commits.sh "${BASE_SHA}..${HEAD_SHA}"
