@@ -80,6 +80,7 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | Jaeger | noun | The trace viewer that `docker-compose.yml` runs locally. It receives OTLP on port 4318 and shows traces on port 16686. | tracing UI |
 | run log | noun | `target/smoke/run.log`: every log line of one smoke test query from all three processes, in time order. | combined log |
 | bootstrap configuration | noun | `infra/terraform/bootstrap`: the Terraform configuration that creates the S3 bucket for the state file. `terraform destroy` on the main configuration never touches it. | backend setup |
+| main configuration | noun | `infra/terraform/main`: the Terraform configuration that wires the six modules and holds the whole stack except the state bucket. `terraform destroy` runs on it. | root module |
 | restart script | noun | The script on each EC2 instance that reads `/real-feel/*` from SSM Parameter Store, writes an env file, pulls the images, and restarts the containers. `deploy.yml` runs it through SSM Run Command. | deploy hook |
 | page | noun | One slice of a result that the API returns for one request. | slice, section |
 | cursor | noun | The last `tweet_id` of the previous page. You pass it as `after` to get the next page. | offset, page token |
