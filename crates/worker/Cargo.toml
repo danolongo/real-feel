@@ -9,6 +9,7 @@ e2e = []
 integration = []
 
 [dependencies]
+chrono.workspace = true
 classifier = { path = "../classifier" }
 db = { path = "../db" }
 futures = "0.3"
@@ -30,3 +31,4 @@ aws-sdk-sqs = "1"
 axum = "0.8"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 serde_json.workspace = true
+tracing-subscriber = "0.3"
