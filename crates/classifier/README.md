@@ -51,7 +51,9 @@ The response wraps the model output in `result`:
 }
 ```
 
-`answers.bot.noul` is the bot probability, from 0 to 1. The `result` wrapper comes from Cloudflare's REST API. The model page does not show it. The contract test checks it every night.
+`answers.bot.noul` is the bot probability, from 0 to 1. The `result` wrapper comes from Cloudflare's REST API. A manual run of `scripts/try-clef-flash.sh` on 2026-10-25 confirmed this format, and the contract test checks it every night.
+
+Clef-flash rejects the Workers AI batch API with error 8007: "This model does not support request queuing". One request can carry several tweets in one `state`, with one question for each tweet. In the manual run, that layout moved each bot probability by less than 0.05. M4 can measure whether that layout is accurate enough to cut the request count.
 
 ## Configuration
 
