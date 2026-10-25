@@ -45,6 +45,7 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | API | noun | The Rust HTTP server in `crates/api`. It accepts queries and returns results. | backend, server, service |
 | worker | noun | A Rust process in `crates/worker`. It takes jobs from SQS. It runs one role: `scraper` or `classifier`. | consumer, processor |
 | scraper | noun | The worker part that fetches tweets and accounts from X. Code: `trait Scraper`. | crawler, fetcher |
+| Firecrawl | noun | The self-hosted web scraping tool that the scraper calls to search X. Address: `FIRECRAWL_URL`. | crawler |
 | classifier | noun | The worker part that sends batches to an inference backend and returns predictions. Code: `trait Classifier`. | detector, model client |
 | embedder | noun | The worker part that turns tweet text into embeddings. Code: `trait Embedder`. | encoder |
 | inference backend | noun | Any system that runs Clef-flash for the classifier. Kinds: hosted backend, self-hosted backend, fake. | provider, model server |
