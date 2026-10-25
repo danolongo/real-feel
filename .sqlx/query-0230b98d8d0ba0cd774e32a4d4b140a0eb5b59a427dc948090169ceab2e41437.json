@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update queries set status = $2, error = $3, updated_at = now()\n        where id = $1 and status = any($4::query_status[])",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        {
+          "Custom": {
+            "name": "query_status",
+            "kind": {
+              "Enum": [
+                "queued",
+                "scraping",
+                "classifying",
+                "done",
+                "failed"
+              ]
+            }
+          }
+        },
+        "Text",
+        {
+          "Custom": {
+            "name": "query_status[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "query_status",
+                  "kind": {
+                    "Enum": [
+                      "queued",
+                      "scraping",
+                      "classifying",
+                      "done",
+                      "failed"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0230b98d8d0ba0cd774e32a4d4b140a0eb5b59a427dc948090169ceab2e41437"
+}
