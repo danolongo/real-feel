@@ -61,6 +61,8 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | dead-letter queue | noun | The queue that receives a job after the job fails too many times. Short form: DLQ. | error queue |
 | visibility timeout | noun | The time SQS hides a received job from other workers. After it ends, SQS delivers the job again. | lock time |
 | job deadline | noun | The time a worker gives one job before it abandons the job. `JOB_DEADLINE_SECS` sets it. | time limit |
+| batch number | noun | The position of one batch in its query, counted from 0. Field name: `batch_number`. | batch index, batch ID |
+| batch count | noun | How many batches a query has. The scraper worker records it once. Field name: `batch_count`. | batch total |
 | batch | noun | An ordered list of model inputs that the classifier sends to an inference backend in one HTTP request. Never a verb. | chunk, group |
 | dynamic batching | noun | An inference server collecting HTTP requests for a short time and running them on the GPU together. | micro-batching |
 | fake | noun | A test version of a trait that returns fixed output and makes no network calls. Never an adjective. | mock, stub, dummy |

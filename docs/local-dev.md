@@ -17,6 +17,8 @@ This file takes you from a clean machine to a running stack. Run every command f
 
    Open `.env` and give `POSTGRES_PASSWORD` a value. Never commit `.env`.
 
+   `.env.example` also lists the worker variables: `SCRAPER`, `FIRECRAWL_URL`, `CLASSIFIER`, `EMBEDDER`, `CLASSIFIER_RPS`, `BATCH_SIZE`, `JOB_DEADLINE_SECS`, `SCRAPER_DLQ_URL`, and `CLASSIFIER_DLQ_URL`. Their defaults run the worker locally. Set `SCRAPER=fixture`, `CLASSIFIER=fake`, and `EMBEDDER=fake` to run with no network. Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` only when `CLASSIFIER` or `EMBEDDER` is `hosted`.
+
 2. Start Postgres (port 5433) and LocalStack (port 4566).
 
    ```bash
