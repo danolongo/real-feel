@@ -101,6 +101,8 @@ write_agent_env() {
   } >"$tmp"
 
   mv -f "$tmp" "$AGENT_ENV_FILE"
+  # Only the agent needs the Datadog API key.
+  sed -i '/^DD_API_KEY=/d' "$ENV_FILE"
 }
 
 # Stops and removes a container when it exists. docker stop uses the

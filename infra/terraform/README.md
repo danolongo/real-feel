@@ -127,7 +127,7 @@ After a new `apply`, repeat steps 5, 6, 7, and 8. A new `apply` creates new plac
 
 ## Costs
 
-These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-25 and 730 hours per month. The EC2 price comes from a [third-party price table](https://calculator.holori.com/aws/ec2/t3.small/us-east-1), and the RDS price comes from a [third-party RDS price table](https://www.bytebase.com/dbcost/rds/instance/db.t4g.micro/). The gp3 rate, the public IPv4 rate, and the ECR, SQS, Secrets Manager, and S3 rates come from AWS's published list prices and I did not re-check them on 2026-10-25. Check the [AWS Pricing Calculator](https://calculator.aws/) before you rely on the totals.
+These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-25 and 730 hours per month. The EC2 price comes from a [third-party price table](https://calculator.holori.com/aws/ec2/t3.small/us-east-1), and the RDS price comes from a [third-party RDS price table](https://www.bytebase.com/dbcost/rds/instance/db.t4g.micro/). The gp3 rate, the public IPv4 rate, and the ECR, SQS, Secrets Manager, and S3 rates come from AWS's published list prices. Nobody re-checked them on 2026-10-25. Check the [AWS Pricing Calculator](https://calculator.aws/) before you rely on the totals.
 
 | Item | Rate | Monthly (USD) |
 |------|------|---------------|
