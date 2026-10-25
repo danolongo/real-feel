@@ -64,23 +64,27 @@ Datadog watches every component. OpenTelemetry carries the traces.
 
 1. The user sends `POST /queries` with the query text.
 2. The API inserts the query into Postgres with query status `queued`.
-3. The API sends a scraper job to the `scraper-jobs` queue.
+3. The API sends a scraper job to the `scraper-jobs` queue. The job carries the trace context.
 4. The API returns `202` and the query ID.
 5. A scraper worker takes the scraper job. It sets the query status to `scraping`.
 6. The scraper fetches tweets and accounts through Firecrawl.
 7. The scraper worker upserts the tweets and accounts into Postgres.
-8. The scraper worker splits the tweets into batches. It sends one classifier job for each batch.
-9. The scraper worker records the batch count. It sets the query status to `classifying`.
+8. The scraper worker splits the tweets into batches and numbers them from 0. It sends one classifier job for each batch. A classifier job carries tweet IDs, never tweet text.
+9. The scraper worker records the batch count. It sets the query status to `classifying`. If the scraper found no tweets, the scraper worker sets the status to `done` instead.
 10. A classifier worker takes a classifier job. It builds one model input for each tweet.
 11. The classifier sends the batch to the inference backend. It gets back one bot probability for each model input.
 12. The embedder creates one embedding for each tweet.
-13. The classifier worker writes predictions and embeddings to Postgres. It adds one to the finished batch count.
-14. The classifier worker that finishes the last batch sets the query status to `done`.
-15. The user polls `GET /queries/{id}`. The API returns the result once the status is `done`.
+13. The classifier worker opens one Postgres transaction. It locks the query row, upserts the predictions and embeddings, and upserts one `query_batches` row for its batch number.
+14. In the same transaction, the classifier worker counts the `query_batches` rows. When the count equals the batch count, it sets the query status to `done`.
+15. The user polls `GET /queries/{id}`. The API returns the result, one page at a time, once the status is `done`.
+
+The row lock in step 13 matters. Without it, two workers that finish the last two batches at once could each count one batch short. Neither would set `done`.
 
 ### Failure flow
 
-- SQS delivers each job at least once. The worker upserts every row, so a second delivery changes nothing.
+- SQS delivers each job at least once. The worker upserts every row, so a second delivery changes nothing. A repeated classifier job upserts the same `query_batches` row, so it never counts twice.
+- If the API cannot send the scraper job, the API sets the query status to `failed` and returns `503`.
+- Postgres applies a status change only when the current status allows it. See [Status changes](#status-changes). A retried scraper job cannot move a `done` query back to `scraping`.
 - The worker deletes a job only after Postgres commits.
 - When a job fails, SQS makes the job visible again after the visibility timeout. A worker retries it.
 - After five failed receives, SQS moves the job to the dead-letter queue.
@@ -107,7 +111,7 @@ Each row becomes a decision record in M0. "Agreed" rows come from the design dis
 | D13 | Two queues: `scraper-jobs` and `classifier-jobs`. | Scraping and classifying have different speeds and costs. Two queues let each worker role autoscale on its own queue. | Proposed |
 | D14 | Postgres access through `sqlx`. | Pure Rust. `sqlx` checks SQL against the schema at compile time. | Proposed |
 | D15 | Terraform for AWS infrastructure. Terraform stores its state file in S3 with native S3 locking. | Widely used. Plain configuration files. No extra lock table. | Proposed |
-| D16 | Shared types generate JSON Schema. The reference server generates its Python models from that JSON Schema. | Rust and Python share one contract. CI catches drift between the two. | Proposed |
+| D16 | The inference server contract types in `crates/types` generate JSON Schema (task 6.2). The reference server generates its Python models from that JSON Schema. No other type derives `schemars`. | Rust and Python share one contract. CI catches drift between the two. | Proposed |
 | D17 | GitHub Actions authenticates to AWS with OIDC. | No long-lived AWS keys in GitHub secrets. | Proposed |
 
 ## Open decisions
@@ -136,13 +140,13 @@ real-feel/
 ├── rust-toolchain.toml
 ├── crates/
 │   ├── types/                 # shared contracts: Query, Tweet, Account, ModelInput, Prediction, jobs
+│   ├── telemetry/             # tracing, OpenTelemetry, and trace context, shared by all binaries
 │   ├── db/                    # sqlx pool, migrations, repository functions
 │   ├── queue/                 # SQS send, receive, delete for typed jobs
 │   ├── scraper/               # trait Scraper; Firecrawl and fixture implementations
 │   ├── metadata/              # builds model inputs for each metadata version and question version
 │   ├── classifier/            # trait Classifier; hosted, self-hosted, and fake implementations
 │   ├── embedder/              # trait Embedder; hosted and fake implementations
-│   ├── telemetry/             # tracing and OpenTelemetry setup, shared by all binaries
 │   ├── api/                   # binary: axum HTTP server
 │   ├── worker/                # binary: --role scraper | classifier
 │   ├── eval/                  # binary: experiments and eval reports
@@ -174,8 +178,8 @@ Each crate depends only on crates above it in this list. `types` depends on noth
 
 - `main` holds working code. Nobody pushes to `main` directly.
 - You create one branch for each task.
-- Branch names: `<kind>/m<N>-<short-name>`. Example: `feat/m1-db-migrations`.
-- Kinds: `feat`, `fix`, `refactor`, `docs`, `test`, `infra`, `chore`.
+- Branch names: `<kind>/m<N>-<short-name>`. Example: `add/m1-db-migrations`.
+- Kinds match the commit types: `add`, `fix`, `refactor`, `docs`, `test`, `infra`, `chore`.
 
 ### Pull requests
 
@@ -212,8 +216,7 @@ Each crate depends only on crates above it in this list. `types` depends on noth
 
 ### Closing a milestone
 
-1. You check every gate item.
-2. You tag `main` as `m<N>-done`. Example: `m1-done`.
+You check every gate item in this plan. Milestones get no git tags.
 
 ## CI
 
@@ -228,10 +231,10 @@ GitHub Actions runs every workflow.
 
 ### `ci.yml` jobs
 
-- **rust**: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` for unit tests. `Swatinem/rust-cache` caches builds.
+- **rust**: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` for unit tests. `SQLX_OFFLINE=true` lets the `sqlx` macros compile from `.sqlx/` with no database. `Swatinem/rust-cache` caches builds.
 - **docs**: `markdownlint`, `lychee` for links, Vale for the writing rules.
 - **commits** (PRs only): `scripts/check-commits.sh` checks the PR title and every commit against the commit format. It rejects any `Co-authored-by` line.
-- **integration** (from M1): GitHub service containers run Postgres (pgvector) and LocalStack. CI runs the tests for `db`, `queue`, and `api` against them. `SQLX_OFFLINE=true` makes compile-time SQL checks work without a database.
+- **integration** (from M1): after checkout, CI runs `docker compose up -d --wait` to start Postgres (pgvector) and LocalStack. CI runs `cargo sqlx prepare --workspace --check`, which fails when `.sqlx/` is stale. CI then runs `cargo test --workspace --features integration`. Integration tests sit behind the `integration` Cargo feature, so the `rust` job never runs them. Each test creates its own queues with unique names and deletes them at the end, so parallel tests never read each other's jobs.
 - **e2e** (from M2): Docker Compose runs the whole stack with the fixture scraper, the fake classifier, and the fake embedder. The test sends a query and polls until the status is `done`.
 - **python** (from M6, only when `inference/` changes): `ruff`, `pyright --strict`, `pytest`. A check confirms the generated Python models match the current JSON Schema.
 - **contract** (from M6): the reference server's request and response pass validation against the JSON Schema from `crates/types`.
@@ -243,7 +246,7 @@ CI calls no paid services on PRs. Only `nightly.yml` and `gpu.yml` call paid ser
 | Layer | What it checks | Where it runs | Network |
 |-------|----------------|---------------|---------|
 | Unit | One function or one type | `ci.yml` rust | None |
-| Integration | One crate against Postgres or SQS | `ci.yml` integration | LocalStack, Postgres containers |
+| Integration | One crate against Postgres or SQS | `ci.yml` integration | Docker Compose: LocalStack, Postgres |
 | End-to-end | The full request flow with fakes | `ci.yml` e2e | Containers only |
 | Contract | The hosted backend still accepts Real Feel's model inputs | `nightly.yml` | Cloudflare (paid) |
 | Parity | Two inference servers give the same bot probabilities | `gpu.yml` | GPU instance |
@@ -329,31 +332,74 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
 
 **Tasks**
 
-- [ ] **1.1** `crates/types`: You define `Query`, `QueryStatus`, `Tweet`, `Account`, `ScraperJob`, `ClassifierJob`, `ModelInput`, `Prediction`, `MetadataVersion`, `QuestionVersion`, `ModelVersion`. Every type derives `serde` and `schemars`.
+- [ ] **1.1** `crates/types`: You define `Query`, `QueryStatus`, `Tweet`, `Account`, `ScraperJob`, `ClassifierJob`, `Prediction`, `MetadataVersion`, `QuestionVersion`, `ModelVersion`. Every type derives `serde`. No type derives `schemars` yet (D16).
+  - `ScraperJob` carries the query ID and the trace context.
+  - `ClassifierJob` carries the query ID, the batch number, the tweet IDs, and the trace context. It never carries tweet text, so it stays far below the SQS message size limit.
+  - `Prediction` holds what Postgres stores: tweet ID, the three versions, and bot probability. `ModelInput` waits for M2, because its shape depends on Cloudflare's request format.
 - [ ] **1.2** `crates/db`: You write `sqlx` migrations for these tables:
-  - `queries`: `id`, `text`, `status`, `error`, `batch_count`, `batches_done`, `created_at`, `updated_at`
-  - `accounts`: `id`, `handle`, X profile fields, `raw` (`jsonb`), `fetched_at`
-  - `tweets`: `id`, `account_id`, `text`, `posted_at`, `raw` (`jsonb`), `embedding` (`vector`)
-  - `query_tweets`: `query_id`, `tweet_id`
-  - `predictions`: `tweet_id`, `model_version`, `metadata_version`, `question_version`, `p_bot`, `raw` (`jsonb`), `created_at`. The primary key covers the first four columns.
-- [ ] **1.3** `crates/db`: You write repository functions. Every write is an upsert. You commit the `sqlx` offline data in `.sqlx/`.
-- [ ] **1.4** `crates/queue`: You write typed `send`, `receive`, and `delete` functions over SQS. The functions return the receive count with each job.
-- [ ] **1.5** `crates/telemetry`: You set up `tracing` with JSON logs and an OpenTelemetry exporter. A missing endpoint turns the exporter off.
-- [ ] **1.6** `crates/api`: You build three endpoints with axum:
-  - `POST /queries`: inserts a `queued` query, sends a scraper job, returns `202` with `{ "query_id": … }`.
-  - `GET /queries/{id}`: returns the query status. When the status is `done`, it also returns the result, one page at a time.
-  - `GET /health`: returns `200` when Postgres and SQS respond.
-- [ ] **1.7** `crates/api`: You return every error as JSON with a stable `code` field.
-- [ ] **1.8** You add the `integration` job to `ci.yml`.
+  - `queries`: `id` (`uuid`), `text`, `status` (Postgres enum `query_status`), `error` (null until `failed`), `batch_count` (null until the scraper worker sets it), `created_at`, `updated_at`
+  - `accounts`: `id` (`text`), `handle`, `raw` (`jsonb`), `updated_at`
+  - `tweets`: `id` (`text`), `account_id`, `text`, `posted_at` (nullable), `raw` (`jsonb`), `updated_at`
+  - `query_tweets`: `query_id`, `tweet_id`. Primary key: both columns.
+  - `query_batches`: `query_id`, `batch_number`, `finished_at`. Primary key: the first two columns.
+  - `predictions`: `tweet_id`, `model_version`, `metadata_version`, `question_version`, `p_bot`, `raw` (`jsonb`), `created_at`. Primary key: the first four columns.
 
-**Docs:** a `README.md` for `types`, `db`, `queue`, `telemetry`, `api`. The `api` README documents every endpoint with an example HTTP request and response.
+  `accounts` and `tweets` stay minimal on purpose. `raw` holds every field the scraper returns. Task 2.2 adds columns once spike 2.1 shows what Firecrawl returns. IDs are `text` because the spike may show that a page exposes only the handle. Task 2.5 adds the `embedding` column, because pgvector needs a fixed dimension and O2 sets it.
+- [ ] **1.3** `crates/db`: You write the repository functions. They are the only code that runs SQL.
+  - Each worker write upserts with `ON CONFLICT … DO UPDATE … WHERE (columns) IS DISTINCT FROM (excluded columns)`. A second call with the same input changes no row. `updated_at` changes only when content changes.
+  - `POST /queries` inserts. Each query gets a new ID, so this write is never an upsert.
+  - Each status change is a conditional `UPDATE` from the [Status changes](#status-changes) table. The function returns whether Postgres applied the change.
+  - You commit the `sqlx` offline data in `.sqlx/`.
+- [ ] **1.4** `crates/queue`: You write typed `send`, `receive`, and `delete` functions over SQS.
+  - `receive` asks SQS for the `ApproximateReceiveCount` attribute. It returns the job, the receive count, and the receipt handle.
+  - `send` writes the current trace context into the job. `receive` restores it, so a worker's spans join the API's trace.
+  - Queue URLs come from configuration: `SCRAPER_QUEUE_URL`, `CLASSIFIER_QUEUE_URL`.
+- [ ] **1.5** `crates/telemetry`: You set up `tracing` with JSON logs and an OpenTelemetry exporter. A missing endpoint turns the exporter off. You write the helpers that read and write the W3C `traceparent` value.
+- [ ] **1.6** `crates/api`: You build four endpoints with axum:
+  - `POST /queries`: accepts `{ "text": … }`. Text must hold 1 to 512 characters after trimming. The API inserts a `queued` query, sends a scraper job, and returns `202` with `{ "query_id": … }`. If the send fails, the API sets the status to `failed`, records the error, and returns `503`.
+  - `GET /queries/{id}?limit=&after=`: returns the query status. When the status is `done`, it also returns one page of the result. The API sorts tweets by `tweet_id`. `after` is the cursor: the last `tweet_id` of the previous page. `limit` defaults to 50, with a maximum of 200. The response carries `next_cursor`, which is null on the last page.
+  - `GET /health`: the liveness check. It returns `200` while the process runs. It checks no dependency, so a short Postgres outage never marks every API instance unhealthy.
+  - `GET /ready`: the readiness check. It returns `200` when Postgres and SQS respond, and `503` when either does not.
+- [ ] **1.7** `crates/api`: The result shows one prediction for each tweet. The API selects it with `DEFAULT_MODEL_VERSION`, `DEFAULT_METADATA_VERSION`, and `DEFAULT_QUESTION_VERSION` from configuration. The result carries `p_bot` only. `is_bot` arrives in task 4.7, when O4 sets the bot threshold.
+- [ ] **1.8** `crates/api`: You return every error as JSON: `{ "code": …, "message": … }`. The error codes:
+
+  | Code | HTTP status | When |
+  |------|-------------|------|
+  | `invalid_query` | 400 | Query text is empty or longer than 512 characters. |
+  | `invalid_query_id` | 400 | The ID in the path is not a UUID. |
+  | `invalid_cursor` | 400 | `limit` is out of range, or `after` is not a valid tweet ID. |
+  | `query_not_found` | 404 | No query has that ID. |
+  | `queue_unavailable` | 503 | SQS rejected the scraper job. |
+  | `internal` | 500 | Any other failure. The message hides internal detail. |
+- [ ] **1.9** You add the `integration` job to `ci.yml`. You add `SQLX_OFFLINE=true` to the `rust` job. See [`ci.yml` jobs](#ciyml-jobs).
+- [ ] **1.10** You add the new terms to the glossary and to `.vale/styles/RealFeel/Glossary.yml`. The terms: upsert, repository function, receive count, trace context, page, cursor, liveness check, readiness check, error code.
+
+#### Status changes
+
+Postgres applies a status change only from the statuses this table allows. Any other change is a no-op, and the repository function returns `false`.
+
+| New status | Allowed current statuses | Who sets it |
+|------------|--------------------------|-------------|
+| `scraping` | `queued`, `scraping` | scraper worker. `scraping` → `scraping` lets a retried scraper job continue. |
+| `classifying` | `scraping` | scraper worker |
+| `done` | `scraping` (zero tweets), `classifying` | scraper worker or classifier worker |
+| `failed` | `queued`, `scraping`, `classifying` | API or any worker |
+
+`done` and `failed` are final. Nothing moves a query out of them.
+
+**Docs:** a `README.md` for `types`, `db`, `queue`, `telemetry`, `api`. The `db` README holds the status change table. The `api` README documents every endpoint with an example HTTP request and response, and lists every error code.
 
 **Gate**
 
 - [ ] An integration test sends `POST /queries` and then `GET /queries/{id}`. It sees status `queued`.
-- [ ] The same test finds the scraper job in the LocalStack `scraper-jobs` queue.
-- [ ] A second identical upsert leaves every table unchanged. A test proves it.
-- [ ] CI runs the integration tests on every PR.
+- [ ] The same test receives a scraper job from its own queue. The job's query ID matches, and the job carries a trace context.
+- [ ] A test points the API at a queue that does not exist. `POST /queries` returns `503` with `queue_unavailable`, and the query status is `failed`.
+- [ ] A test calls each upsert repository function twice with the same input. The second call reports zero changed rows.
+- [ ] A test tries every status change that the table forbids. Each one returns `false` and leaves the status unchanged.
+- [ ] A test seeds a `done` query with 120 tweets and predictions. It pages through with `limit=50` and gets 50, 50, and 20 tweets, then a null `next_cursor`.
+- [ ] A test checks each error code against its HTTP status.
+- [ ] `GET /health` returns `200` with Postgres stopped. `GET /ready` returns `503`.
+- [ ] CI runs the integration tests on every PR. The `rust` job passes with no database.
 
 ---
 
@@ -364,15 +410,15 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
 **Tasks**
 
 - [ ] **2.1** **Spike:** You test self-hosted Firecrawl against an X search page, a profile page, and a tweet page. You record which fields come back. You write `docs/reports/spike-firecrawl-x.md` and a decision record that settles O1.
-- [ ] **2.2** `crates/scraper`: You define `trait Scraper`. You write the Firecrawl implementation and a fixture implementation. The fixture implementation reads JSON files from `crates/scraper/fixtures/`.
-- [ ] **2.3** `crates/metadata`: You write metadata version `v1` (tweet text only) and question version `v1` (bot or human). The functions are pure: the same tweet and account always give the same model input.
+- [ ] **2.2** `crates/scraper`: You define `trait Scraper`. You write the Firecrawl implementation and a fixture implementation. The fixture implementation reads JSON files from `crates/scraper/fixtures/`. You add migrations for the `accounts` and `tweets` columns that spike 2.1 confirms, and you settle what `id` holds.
+- [ ] **2.3** `crates/metadata`: You define `ModelInput` in `crates/types`. You write metadata version `v1` (tweet text only) and question version `v1` (bot or human). The functions are pure: the same tweet and account always give the same model input.
 - [ ] **2.4** `crates/classifier`: You define `trait Classifier`. You write the hosted implementation and the fake. The hosted implementation:
   - reads Cloudflare's request format for Clef-flash and records it in the crate README
   - retries on `429` and `5xx` with exponential backoff and jitter
   - stays under a configured requests-per-second limit
-- [ ] **2.5** `crates/embedder`: You settle O2 with a decision record. You define `trait Embedder`. You write the hosted implementation and the fake. You add a migration that sets the `embedding` column dimension.
+- [ ] **2.5** `crates/embedder`: You settle O2 with a decision record. You define `trait Embedder`. You write the hosted implementation and the fake. You add a migration that creates the `embedding` column on `tweets`, with the dimension O2 sets.
 - [ ] **2.6** `crates/worker`, role `scraper`: the worker takes a scraper job and carries out steps 5–9 of the [request flow](#request-flow). `BATCH_SIZE` sets the batch size.
-- [ ] **2.7** `crates/worker`, role `classifier`: the worker takes a classifier job and carries out steps 10–14. The batch-count update and the status change happen in one Postgres transaction.
+- [ ] **2.7** `crates/worker`, role `classifier`: the worker takes a classifier job and carries out steps 10–14. The `query_batches` upsert, the batch count check, and the status change happen in one Postgres transaction that locks the query row first.
 - [ ] **2.8** `crates/worker`: You add the [failure flow](#failure-flow). A fake classifier that fails N times proves the retry and the DLQ.
 - [ ] **2.9** You add the `e2e` job to `ci.yml`.
 - [ ] **2.10** You add `nightly.yml` with a contract test against the hosted backend.
@@ -384,7 +430,9 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
 
 - [ ] The e2e test passes in CI: `POST /queries` leads to status `done` with predictions for every tweet.
 - [ ] A test shows a failing job reaching the DLQ and the query status becoming `failed`.
-- [ ] A test shows a duplicated classifier job producing no duplicate predictions.
+- [ ] A test shows a duplicated classifier job producing no duplicate predictions and no extra `query_batches` row.
+- [ ] A test runs two classifier workers on the last two batches at once. The query ends with status `done`.
+- [ ] A test with zero scraped tweets ends with status `done`.
 - [ ] `scripts/smoke.sh` completes one real query. The smoke report records it.
 - [ ] Decision records settle O1 and O2.
 
@@ -437,7 +485,7 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
 - [ ] **4.4** `crates/metadata`: You write question versions that word the bot question in different ways.
 - [ ] **4.5** `crates/eval`: You build the `eval` binary. `eval experiment --model-version … --metadata-version … --question-version …` runs one experiment. The binary prints the expected cost before it calls a paid backend, and asks you to confirm.
 - [ ] **4.6** `crates/eval`: The binary computes accuracy, precision, recall, F1, ROC-AUC, Brier score, and expected calibration error. Postgres stores every experiment. `eval report` writes an eval report that compares experiments.
-- [ ] **4.7** You settle O4 from the eval report. You record the chosen bot threshold in a decision record.
+- [ ] **4.7** You settle O4 from the eval report. You record the chosen bot threshold in a decision record. The API adds `is_bot` to the result.
 - [ ] **4.8** You compare each metadata version's fields against the fields Firecrawl returns. You list the gaps in the eval report.
 - [ ] **4.9** CI runs one experiment on a ten-item fixture eval set with the fake classifier.
 
