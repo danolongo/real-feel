@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [features]
+e2e = []
 integration = []
 
 [dependencies]
@@ -24,6 +25,9 @@ types = { path = "../types" }
 uuid.workspace = true
 
 [dev-dependencies]
+api = { path = "../api" }
 aws-config = "1"
 aws-sdk-sqs = "1"
+axum = "0.8"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 serde_json.workspace = true
