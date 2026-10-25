@@ -10,6 +10,11 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U realfeel -d realfeel"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
 
   localstack:
     image: localstack/localstack:3.0

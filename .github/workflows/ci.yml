@@ -19,6 +19,8 @@ env:
 jobs:
   rust:
     runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: "true"
     steps:
       - uses: actions/checkout@v7
       - name: Install the toolchain from rust-toolchain.toml
@@ -27,6 +29,44 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-password
+      DATABASE_URL: postgres://realfeel:ci-password@localhost:5433/realfeel
+      SCRAPER_QUEUE_URL: http://localhost:4566/000000000000/scraper-jobs
+      CLASSIFIER_QUEUE_URL: http://localhost:4566/000000000000/classifier-jobs
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose up -d --wait
+      - name: Install the toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Cache sqlx-cli
+        id: sqlx-cli
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/sqlx
+          key: sqlx-cli-0.9.0
+      - name: Install sqlx-cli
+        if: steps.sqlx-cli.outputs.cache-hit != 'true'
+        run: cargo install sqlx-cli --version 0.9.0 --locked --no-default-features --features rustls,postgres
+      - run: sqlx migrate run --source crates/db/migrations
+      - run: cargo sqlx prepare --workspace --check
+      - name: Run the integration tests
+        run: |
+          packages=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.features | has("integration")) | .name')
+          args=()
+          for package in $packages; do
+            args+=(-p "$package" --features "$package/integration")
+          done
+          cargo test "${args[@]}"
 
   docs:
     runs-on: ubuntu-latest

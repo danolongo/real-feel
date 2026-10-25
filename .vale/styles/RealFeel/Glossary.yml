@@ -58,3 +58,13 @@ swap:
   prompt version: question version
   consumer: worker
   processor: worker
+  insert-or-update: upsert
+  query function: repository function
+  data access function: repository function
+  delivery count: receive count
+  attempt count: receive count
+  trace header: trace context
+  page token: cursor
+  health probe: liveness check
+  ready probe: readiness check
+  error type: error code
