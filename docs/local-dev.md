@@ -89,6 +89,16 @@ cargo test -p worker --features e2e
 
 CI runs the same command in the `e2e` job.
 
+## Run the smoke test
+
+The smoke test sends one real query through twitterapi.io and the hosted backend. It costs about $0.02. It needs the stack, the applied migrations, and `TWITTERAPI_KEY`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_API_TOKEN` in `.env`.
+
+```bash
+scripts/smoke.sh "what are people saying about AI?"
+```
+
+The script starts the API on port 8090 and both worker roles, with query reuse off. It prints a summary and `PASS` when the status is `done`, the result holds at least 10 tweets, and every tweet has a bot probability. It writes the logs and the summary to `target/smoke/`.
+
 ## Compile the SQL checks
 
 The `sqlx` macros check every SQL query at compile time against the database in `DATABASE_URL`. With the stack down, set `SQLX_OFFLINE=true`, and the macros read your local `.sqlx/` instead. Git ignores `.sqlx/`, so it never leaves your machine. Install `sqlx-cli` once.
