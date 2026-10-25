@@ -6,10 +6,11 @@ rust-version.workspace = true
 
 [dependencies]
 chrono.workspace = true
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "query"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror = "2"
+tokio = { version = "1", features = ["time"] }
 types = { path = "../types" }
 
 [dev-dependencies]

@@ -55,8 +55,10 @@ Failure flow, in both roles:
 | `DATABASE_URL` | none | Postgres address. |
 | `SCRAPER_QUEUE_URL`, `SCRAPER_DLQ_URL` | none | The scraper role's queue and dead-letter queue. |
 | `CLASSIFIER_QUEUE_URL`, `CLASSIFIER_DLQ_URL` | none | The classifier role's queue and dead-letter queue. The scraper role sends to `CLASSIFIER_QUEUE_URL`. |
-| `SCRAPER` | `firecrawl` | Scraper implementation: `firecrawl` or `fixture`. |
-| `FIRECRAWL_URL` | `http://localhost:3002` | Firecrawl address. |
+| `SCRAPER` | `twitterapi` | Scraper implementation: `twitterapi` or `fixture`. |
+| `TWITTERAPI_KEY` | none | The twitterapi.io key. Required with `SCRAPER=twitterapi`. |
+| `TWITTERAPI_PAGES` | `5` | The most search pages for each query, 20 tweets each. |
+| `TWITTERAPI_INTERVAL_SECS` | `5` | The pause between two requests. The free tier allows one request every 5 seconds. |
 | `FIXTURE_PATH` | `crates/scraper/fixtures/default.json` | The file the `fixture` scraper reads. |
 | `CLASSIFIER` | `hosted` | Classifier implementation: `hosted` or `fake`. |
 | `EMBEDDER` | `hosted` | Embedder implementation: `hosted` or `fake`. |
