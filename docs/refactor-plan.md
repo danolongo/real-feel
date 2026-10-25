@@ -291,35 +291,35 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
 
 **Tasks**
 
-- [ ] **0.1** You tag the current `main` as `legacy-v1` and push the tag. The tag keeps the old pipeline, model, and SAM code reachable.
-- [ ] **0.2** You protect `main` in GitHub settings: require a PR, require `ci.yml` to pass, allow squash merge only.
-- [ ] **0.3** You add `.github/pull_request_template.md` with the checklist from [Pull requests](#pull-requests).
-- [ ] **0.4** You delete the legacy code: `pipeline/`, `model/`, `api/template.yaml`, `api/LOCAL_DEV.md`, and the root `PLAN.md`.
-- [ ] **0.5** You trim `docker-compose.yml` to two services: Postgres (pgvector) and LocalStack running SQS. You delete Kafka, ZooKeeper, Spark, and DynamoDB. You update `infra/localstack/init.sh` to create the four queues.
-- [ ] **0.6** You create the Cargo workspace. You move `api/` to `crates/api/`. The API serves only `GET /health` for now.
-- [ ] **0.7** You remove `Cargo.lock` from `.gitignore` and commit the lock file. You remove the SAM and Lambda entries from `.gitignore`.
-- [ ] **0.8** You add `rust-toolchain.toml` to pin the Rust version.
-- [ ] **0.9** You write `ci.yml` with the `rust` and `docs` jobs.
-- [ ] **0.10** You add the Vale configuration: passive voice, sentence length, and a substitution list from the glossary's "Do not use" column.
-- [ ] **0.11** You write `docs/local-dev.md` and a decision record for each row in [Decisions](#decisions). The records stay on your machine: git ignores `docs/decisions/`.
-- [ ] **0.12** You rewrite `README.md` for the new architecture. `.claude/CLAUDE.md` stays local: git ignores `.claude/`.
+- [x] **0.1** You tag the current `main` as `legacy-v1` and push the tag. The tag keeps the old pipeline, model, and SAM code reachable.
+- [x] **0.2** You protect `main` in GitHub settings: require a PR, require `ci.yml` to pass, allow squash merge only.
+- [x] **0.3** You add `.github/pull_request_template.md` with the checklist from [Pull requests](#pull-requests).
+- [x] **0.4** You delete the legacy code: `pipeline/`, `model/`, `api/template.yaml`, `api/LOCAL_DEV.md`, and the root `PLAN.md`.
+- [x] **0.5** You trim `docker-compose.yml` to two services: Postgres (pgvector) and LocalStack running SQS. You delete Kafka, ZooKeeper, Spark, and DynamoDB. You update `infra/localstack/init.sh` to create the four queues.
+- [x] **0.6** You create the Cargo workspace. You move `api/` to `crates/api/`. The API serves only `GET /health` for now.
+- [x] **0.7** You remove `Cargo.lock` from `.gitignore` and commit the lock file. You remove the SAM and Lambda entries from `.gitignore`.
+- [x] **0.8** You add `rust-toolchain.toml` to pin the Rust version.
+- [x] **0.9** You write `ci.yml` with the `rust` and `docs` jobs.
+- [x] **0.10** You add the Vale configuration: passive voice, sentence length, and a substitution list from the glossary's "Do not use" column.
+- [x] **0.11** You write `docs/local-dev.md` and a decision record for each row in [Decisions](#decisions). The records stay on your machine: git ignores `docs/decisions/`.
+- [x] **0.12** You rewrite `README.md` for the new architecture. `.claude/CLAUDE.md` stays local: git ignores `.claude/`.
 - [ ] **0.13** You start the tasks that wait on other companies:
   - Activate the Datadog student plan.
   - Create a Cloudflare account and a Workers AI API token. Store the token in `.env`, never in git. You host Firecrawl yourself, so it needs no account.
 - [ ] **0.14** You create an AWS Budgets alert with a monthly limit you choose.
-- [ ] **0.15** You add a CI check on every PR. It rejects a commit or PR title that breaks the [commit format](writing-rules.md#commit-messages). It rejects any commit with a `Co-authored-by` line.
+- [x] **0.15** You add a CI check on every PR. It rejects a commit or PR title that breaks the [commit format](writing-rules.md#commit-messages). It rejects any commit with a `Co-authored-by` line.
 
 **Docs:** `docs/local-dev.md`, `docs/decisions/0001`–`0017` (local), `crates/api/README.md`.
 
 **Gate**
 
-- [ ] The `legacy-v1` tag exists on GitHub.
-- [ ] `main` rejects direct pushes.
-- [ ] CI passes on `main`.
-- [ ] `docker compose up` starts only Postgres and LocalStack. LocalStack lists four queues.
-- [ ] `cargo run -p api` serves `GET /health` with status `200`.
-- [ ] Vale passes on every file in `docs/`.
-- [ ] Every row in [Decisions](#decisions) has a decision record with status `accepted`.
+- [x] The `legacy-v1` tag exists on GitHub.
+- [x] `main` rejects direct pushes.
+- [x] CI passes on `main`.
+- [x] `docker compose up` starts only Postgres and LocalStack. LocalStack lists four queues.
+- [x] `cargo run -p api` serves `GET /health` with status `200`.
+- [x] Vale passes on every file in `docs/`.
+- [x] Every row in [Decisions](#decisions) has a decision record with status `accepted`.
 
 ---
 
