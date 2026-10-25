@@ -6,7 +6,7 @@ use types::{ClassifierJob, MetadataVersion, QuestionVersion};
 
 use crate::{Context, Error};
 
-/// Carries out steps 10 to 14 of the request flow.
+/// Carries out steps 10 to 13 of the request flow.
 pub struct ClassifierRole<C> {
     pub context: Context,
     pub classifier: C,

@@ -31,7 +31,7 @@ Scraper role, steps 5 to 9 of the request flow:
 7. The scraper worker records the batch count and sets the status to `classifying` in one `UPDATE`. A redelivered job skips this write.
 8. The scraper worker sends one classifier job for each batch.
 
-Classifier role, steps 10 to 14:
+Classifier role, steps 10 to 13:
 
 1. The classifier worker takes a classifier job. If a `query_batches` row exists for the batch, the worker deletes the job and stops.
 2. The classifier worker finds the tweets that have no prediction for the model version, `DEFAULT_METADATA_VERSION`, and `DEFAULT_QUESTION_VERSION`.
