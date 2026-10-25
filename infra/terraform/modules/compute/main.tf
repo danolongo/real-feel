@@ -221,6 +221,11 @@ resource "aws_instance" "api" {
     http_put_response_hop_limit = 2
   }
 
+  # Standard credits throttle the instance at its baseline instead of billing extra CPU.
+  credit_specification {
+    cpu_credits = "standard"
+  }
+
   root_block_device {
     volume_type = "gp3"
     volume_size = 20
@@ -269,6 +274,11 @@ resource "aws_instance" "worker" {
   metadata_options {
     http_tokens                 = "required"
     http_put_response_hop_limit = 2
+  }
+
+  # Standard credits throttle the instance at its baseline instead of billing extra CPU.
+  credit_specification {
+    cpu_credits = "standard"
   }
 
   root_block_device {
