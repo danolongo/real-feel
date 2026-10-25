@@ -1,22 +1,20 @@
 use std::convert::Infallible;
 
 use classifier::Classifier;
-use db::{Vector, Versions};
-use embedder::Embedder;
+use db::Versions;
 use types::{ClassifierJob, MetadataVersion, QuestionVersion};
 
 use crate::{Context, Error};
 
 /// Carries out steps 10 to 14 of the request flow.
-pub struct ClassifierRole<C, E> {
+pub struct ClassifierRole<C> {
     pub context: Context,
     pub classifier: C,
-    pub embedder: E,
     pub metadata_version: MetadataVersion,
     pub question_version: QuestionVersion,
 }
 
-impl<C: Classifier + Sync, E: Embedder + Sync> ClassifierRole<C, E> {
+impl<C: Classifier + Sync> ClassifierRole<C> {
     pub async fn run(&self) {
         tokio::select! {
             never = self.work() => match never {},
@@ -46,27 +44,12 @@ impl<C: Classifier + Sync, E: Embedder + Sync> ClassifierRole<C, E> {
                 metadata::build(tweet, account, &versions.metadata, &versions.question)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let (predictions, embeddings) = if inputs.is_empty() {
-            (Vec::new(), Vec::new())
+        let predictions = if inputs.is_empty() {
+            Vec::new()
         } else {
-            let predictions = self.classifier.classify(&inputs).await?;
-            let texts: Vec<String> = rows.iter().map(|(tweet, _)| tweet.text.clone()).collect();
-            let embeddings = self.embedder.embed(&texts).await?;
-            let embeddings = rows
-                .iter()
-                .zip(embeddings)
-                .map(|((tweet, _), embedding)| (tweet.id.clone(), Vector::from(embedding)))
-                .collect();
-            (predictions, embeddings)
+            self.classifier.classify(&inputs).await?
         };
-        db::finish_batch(
-            db,
-            job.query_id,
-            job.batch_number,
-            &predictions,
-            &embeddings,
-        )
-        .await?;
+        db::finish_batch(db, job.query_id, job.batch_number, &predictions).await?;
         Ok(())
     }
 }

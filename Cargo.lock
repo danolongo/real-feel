@@ -851,7 +851,6 @@ dependencies = [
 name = "db"
 version = "0.1.0"
 dependencies = [
- "pgvector",
  "serde_json",
  "sqlx",
  "tokio",
@@ -935,19 +934,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "embedder"
-version = "0.1.0"
-dependencies = [
- "rand 0.9.5",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "wiremock",
 ]
 
 [[package]]
@@ -1962,15 +1948,6 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
-
-[[package]]
-name = "pgvector"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3673cba5b9a124916096a423b806a9f29620972c6c97b08db5f2053e9428b481"
-dependencies = [
- "sqlx",
-]
 
 [[package]]
 name = "pin-project-lite"
@@ -3675,7 +3652,6 @@ dependencies = [
  "axum",
  "classifier",
  "db",
- "embedder",
  "futures",
  "metadata",
  "queue",

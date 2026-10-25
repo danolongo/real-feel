@@ -8,7 +8,7 @@ The API and the workers call `db`. `db` calls Postgres through `sqlx` and uses t
 
 ## Terms
 
-See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, prediction, model version, metadata version, question version, batch, batch number, batch count, embedding, result, Postgres.
+See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, prediction, model version, metadata version, question version, batch, batch number, batch count, result, Postgres.
 
 ## How it works
 
@@ -27,14 +27,12 @@ See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, 
 13. `finish_batch` runs one transaction:
     1. It locks the query row with `SELECT … FOR UPDATE`.
     2. It upserts the predictions with `upsert_prediction`.
-    3. It writes the embeddings to `tweets.embedding`.
-    4. It upserts the `query_batches` row.
-    5. It counts the `query_batches` rows.
-    6. When the batch count is not null and equals the count, it sets the query status to `done`.
+    3. It upserts the `query_batches` row.
+    4. It counts the `query_batches` rows.
+    5. When the batch count is not null and equals the count, it sets the query status to `done`.
 
     It returns whether it set `done`. The lock makes two workers that finish the last two batches at once count one after the other. A repeated call changes no row.
-14. `Vector` is `pgvector::Vector`. `db` re-exports it, so callers bind embeddings with no extra dependency. `tweets.embedding` is `VECTOR(384)`. The migration creates the `vector` extension.
-15. `ping` runs `SELECT 1`. The API uses it for the readiness check.
+14. `ping` runs `SELECT 1`. The API uses it for the readiness check.
 
 ### Status changes
 

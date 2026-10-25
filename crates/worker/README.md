@@ -12,11 +12,11 @@ scraper-jobs ─▶ worker --role scraper ─▶ classifier-jobs ─▶ worker -
                      └──────────────▶ Postgres ◀──────────────────┘
 ```
 
-The scraper role calls `scraper`, `db`, and `queue`. The classifier role calls `metadata`, `classifier`, `embedder`, and `db`. Both roles call `telemetry`.
+The scraper role calls `scraper`, `db`, and `queue`. The classifier role calls `metadata`, `classifier`, and `db`. Both roles call `telemetry`.
 
 ## Terms
 
-See [glossary.md](../../docs/glossary.md): worker, role, scraper, classifier, embedder, job, scraper job, classifier job, queue, dead-letter queue, DLQ reader, job deadline, receive count, trace context, batch, batch number, batch count, query status, upsert, fake, fixture.
+See [glossary.md](../../docs/glossary.md): worker, role, scraper, classifier, job, scraper job, classifier job, queue, dead-letter queue, DLQ reader, job deadline, receive count, trace context, batch, batch number, batch count, query status, upsert, fake, fixture.
 
 ## How it works
 
@@ -36,8 +36,8 @@ Classifier role, steps 10 to 14:
 1. The classifier worker takes a classifier job. If a `query_batches` row exists for the batch, the worker deletes the job and stops.
 2. The classifier worker finds the tweets that have no prediction for the model version, `DEFAULT_METADATA_VERSION`, and `DEFAULT_QUESTION_VERSION`.
 3. The classifier worker builds one model input for each of those tweets with `metadata::build`.
-4. The classifier sends the model inputs to the inference backend. The embedder embeds the tweet text.
-5. The classifier worker calls `db::finish_batch`. It commits the predictions, the embeddings, and the `query_batches` row in one transaction, and sets `done` after the last batch.
+4. The classifier sends the model inputs to the inference backend.
+5. The classifier worker calls `db::finish_batch`. It commits the predictions and the `query_batches` row in one transaction, and sets `done` after the last batch.
 
 Failure flow, in both roles:
 
@@ -61,8 +61,7 @@ Failure flow, in both roles:
 | `TWITTERAPI_INTERVAL_SECS` | `5` | The pause between two requests. The free tier allows one request every 5 seconds. |
 | `FIXTURE_PATH` | `crates/scraper/fixtures/default.json` | The file the `fixture` scraper reads. |
 | `CLASSIFIER` | `hosted` | Classifier implementation: `hosted` or `fake`. |
-| `EMBEDDER` | `hosted` | Embedder implementation: `hosted` or `fake`. |
-| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | none | Read by the hosted classifier and the hosted embedder. |
+| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | none | Read by the hosted classifier. |
 | `CLASSIFIER_RPS` | `5` | Request limit of the hosted classifier. |
 | `DEFAULT_METADATA_VERSION`, `DEFAULT_QUESTION_VERSION` | none | Versions the classifier role builds model inputs with. |
 | `BATCH_SIZE` | none | Tweets in one batch. |
@@ -79,7 +78,7 @@ cargo run -p worker -- --role classifier
 
 ## Test it
 
-The integration tests need Postgres and LocalStack from `docker compose up -d`. They use the fixture scraper, the fake classifier, and the fake embedder. Each test creates its own queues with a 1-second visibility timeout and `maxReceiveCount` 5, and deletes them at the end.
+The integration tests need Postgres and LocalStack from `docker compose up -d`. They use the fixture scraper and the fake classifier. Each test creates its own queues with a 1-second visibility timeout and `maxReceiveCount` 5, and deletes them at the end.
 
 ```bash
 cargo test -p worker --features integration
@@ -91,7 +90,7 @@ The failure test waits for five receives, so it takes several seconds.
 
 | What breaks | What the worker does | What you do |
 |-------------|----------------------|-------------|
-| Postgres, SQS, the scraper, the classifier, or the embedder returns an error | The worker keeps the job. SQS delivers it again. | Read the `job failed` log line. |
+| Postgres, SQS, the scraper, or the classifier returns an error | The worker keeps the job. SQS delivers it again. | Read the `job failed` log line. |
 | A job runs past `JOB_DEADLINE_SECS` | The worker counts a failure. | Raise the deadline, or find the slow call. |
 | The fifth receive fails | The worker sets the query status to `failed` with the error. | Read `queries.error`. |
 | The worker crashes on the fifth receive | SQS moves the job to the dead-letter queue. The DLQ reader sets `failed`. | Restart the worker. |

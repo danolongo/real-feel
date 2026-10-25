@@ -4,7 +4,6 @@ use types::{
 };
 use uuid::Uuid;
 
-pub use pgvector::Vector;
 pub use sqlx::{Error, PgPool};
 
 pub static MIGRATOR: Migrator = sqlx::migrate!();
@@ -368,7 +367,6 @@ pub async fn finish_batch(
     query_id: Uuid,
     batch_number: i32,
     predictions: &[Prediction],
-    embeddings: &[(String, Vector)],
 ) -> Result<bool, Error> {
     let mut tx = pool.begin().await?;
     let batch_count = sqlx::query_scalar!(
@@ -379,13 +377,6 @@ pub async fn finish_batch(
     .await?;
     for prediction in predictions {
         upsert_prediction(&mut *tx, prediction).await?;
-    }
-    for (tweet_id, embedding) in embeddings {
-        sqlx::query("UPDATE tweets SET embedding = $2 WHERE id = $1")
-            .bind(tweet_id)
-            .bind(embedding)
-            .execute(&mut *tx)
-            .await?;
     }
     upsert_query_batch(&mut *tx, query_id, batch_number).await?;
     let finished = sqlx::query_scalar!(

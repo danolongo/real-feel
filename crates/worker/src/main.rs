@@ -1,7 +1,6 @@
 use std::{env, time::Duration};
 
 use classifier::Classifier;
-use embedder::Embedder;
 use queue::Queue;
 use scraper::Scraper;
 use sqlx::postgres::PgPoolOptions;
@@ -48,28 +47,16 @@ async fn run_scraper(scraper: impl Scraper + Sync) -> Result<(), Box<dyn std::er
 
 async fn run_classifier(
     classifier: impl Classifier + Sync,
-    embedder: impl Embedder + Sync,
 ) -> Result<(), Box<dyn std::error::Error>> {
     ClassifierRole {
         context: context("CLASSIFIER_QUEUE_URL", "CLASSIFIER_DLQ_URL").await?,
         classifier,
-        embedder,
         metadata_version: MetadataVersion(var("DEFAULT_METADATA_VERSION")?),
         question_version: QuestionVersion(var("DEFAULT_QUESTION_VERSION")?),
     }
     .run()
     .await;
     Ok(())
-}
-
-async fn run_classifier_with(
-    classifier: impl Classifier + Sync,
-) -> Result<(), Box<dyn std::error::Error>> {
-    match var_or("EMBEDDER", "hosted").as_str() {
-        "hosted" => run_classifier(classifier, embedder::Hosted::from_env()?).await,
-        "fake" => run_classifier(classifier, embedder::Fake).await,
-        other => Err(format!("EMBEDDER must be hosted or fake, not {other}").into()),
-    }
 }
 
 #[tokio::main]
@@ -104,8 +91,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             other => Err(format!("SCRAPER must be twitterapi or fixture, not {other}").into()),
         },
         "classifier" => match var_or("CLASSIFIER", "hosted").as_str() {
-            "hosted" => run_classifier_with(classifier::Hosted::from_env()).await,
-            "fake" => run_classifier_with(classifier::Fake::new(0.5, 0)).await,
+            "hosted" => run_classifier(classifier::Hosted::from_env()).await,
+            "fake" => run_classifier(classifier::Fake::new(0.5, 0)).await,
             other => Err(format!("CLASSIFIER must be hosted or fake, not {other}").into()),
         },
         other => Err(format!("--role must be scraper or classifier, not {other}").into()),
