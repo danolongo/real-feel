@@ -81,19 +81,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => return Err("usage: worker --role scraper|classifier".into()),
     };
     match role {
-        "scraper" => match var_or("SCRAPER", "firecrawl").as_str() {
-            "firecrawl" => {
-                run_scraper(scraper::Firecrawl::new(var_or(
-                    "FIRECRAWL_URL",
-                    "http://localhost:3002",
-                )))
+        "scraper" => match var_or("SCRAPER", "twitterapi").as_str() {
+            "twitterapi" => {
+                run_scraper(scraper::TwitterApi::new(
+                    "https://api.twitterapi.io",
+                    var("TWITTERAPI_KEY")?,
+                    var_or("TWITTERAPI_PAGES", "5")
+                        .parse()
+                        .map_err(|_| "TWITTERAPI_PAGES is not a number")?,
+                    Duration::from_secs(
+                        var_or("TWITTERAPI_INTERVAL_SECS", "5")
+                            .parse()
+                            .map_err(|_| "TWITTERAPI_INTERVAL_SECS is not a number")?,
+                    ),
+                ))
                 .await
             }
             "fixture" => {
                 let path = var_or("FIXTURE_PATH", "crates/scraper/fixtures/default.json");
                 run_scraper(scraper::Fixture::load(path)?).await
             }
-            other => Err(format!("SCRAPER must be firecrawl or fixture, not {other}").into()),
+            other => Err(format!("SCRAPER must be twitterapi or fixture, not {other}").into()),
         },
         "classifier" => match var_or("CLASSIFIER", "hosted").as_str() {
             "hosted" => run_classifier_with(classifier::Hosted::from_env()).await,

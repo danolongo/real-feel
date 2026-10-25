@@ -79,12 +79,27 @@ pub async fn set_status<'e>(
 
 pub async fn upsert_account<'e>(db: impl PgExecutor<'e>, account: &Account) -> Result<u64, Error> {
     let result = sqlx::query!(
-        "INSERT INTO accounts (id, handle, raw) VALUES ($1, $2, $3)
+        "INSERT INTO accounts
+            (id, handle, joined_at, followers, following, tweet_count, is_verified, is_automated, raw)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (id) DO UPDATE
-        SET handle = EXCLUDED.handle, raw = EXCLUDED.raw, updated_at = NOW()
-        WHERE (accounts.handle, accounts.raw) IS DISTINCT FROM (EXCLUDED.handle, EXCLUDED.raw)",
+        SET handle = EXCLUDED.handle, joined_at = EXCLUDED.joined_at,
+            followers = EXCLUDED.followers, following = EXCLUDED.following,
+            tweet_count = EXCLUDED.tweet_count, is_verified = EXCLUDED.is_verified,
+            is_automated = EXCLUDED.is_automated, raw = EXCLUDED.raw, updated_at = NOW()
+        WHERE (accounts.handle, accounts.joined_at, accounts.followers, accounts.following,
+                accounts.tweet_count, accounts.is_verified, accounts.is_automated, accounts.raw)
+            IS DISTINCT FROM (EXCLUDED.handle, EXCLUDED.joined_at, EXCLUDED.followers,
+                EXCLUDED.following, EXCLUDED.tweet_count, EXCLUDED.is_verified,
+                EXCLUDED.is_automated, EXCLUDED.raw)",
         account.id,
         account.handle,
+        account.joined_at,
+        account.followers,
+        account.following,
+        account.tweet_count,
+        account.is_verified,
+        account.is_automated,
         account.raw
     )
     .execute(db)
@@ -174,7 +189,8 @@ pub async fn result_page<'e>(
 ) -> Result<Vec<ResultTweet>, Error> {
     let rows = sqlx::query!(
         r#"SELECT t.id, t.account_id, t.text, t.posted_at, t.raw,
-            a.handle, a.raw AS account_raw,
+            a.handle, a.joined_at, a.followers, a.following, a.tweet_count,
+            a.is_verified, a.is_automated, a.raw AS account_raw,
             p.p_bot AS "p_bot?", p.raw AS "prediction_raw?"
         FROM query_tweets qt
         JOIN tweets t ON t.id = qt.tweet_id
@@ -210,6 +226,12 @@ pub async fn result_page<'e>(
             account: Account {
                 id: row.account_id.clone(),
                 handle: row.handle,
+                joined_at: row.joined_at,
+                followers: row.followers,
+                following: row.following,
+                tweet_count: row.tweet_count,
+                is_verified: row.is_verified,
+                is_automated: row.is_automated,
                 raw: row.account_raw,
             },
             tweet: Tweet {
@@ -261,7 +283,9 @@ pub async fn tweets_with_accounts<'e>(
     tweet_ids: &[String],
 ) -> Result<Vec<(Tweet, Account)>, Error> {
     let rows = sqlx::query!(
-        "SELECT t.id, t.account_id, t.text, t.posted_at, t.raw, a.handle, a.raw AS account_raw
+        "SELECT t.id, t.account_id, t.text, t.posted_at, t.raw, a.handle, a.joined_at,
+            a.followers, a.following, a.tweet_count, a.is_verified, a.is_automated,
+            a.raw AS account_raw
         FROM tweets t
         JOIN accounts a ON a.id = t.account_id
         WHERE t.id = ANY($1)
@@ -276,6 +300,12 @@ pub async fn tweets_with_accounts<'e>(
             let account = Account {
                 id: row.account_id.clone(),
                 handle: row.handle,
+                joined_at: row.joined_at,
+                followers: row.followers,
+                following: row.following,
+                tweet_count: row.tweet_count,
+                is_verified: row.is_verified,
+                is_automated: row.is_automated,
                 raw: row.account_raw,
             };
             let tweet = Tweet {

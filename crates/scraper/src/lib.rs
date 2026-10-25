@@ -3,9 +3,9 @@ use std::{future::Future, path::Path};
 use serde::Deserialize;
 use types::{Account, Tweet};
 
-mod firecrawl;
+mod twitterapi;
 
-pub use firecrawl::Firecrawl;
+pub use twitterapi::TwitterApi;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -13,13 +13,10 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("JSON does not match its type: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("Firecrawl request failed: {0}")]
+    #[error("twitterapi.io request failed: {0}")]
     Http(#[from] reqwest::Error),
-    #[error("tweet {tweet_id} names account {account_id}, which the result lacks")]
-    UnknownAccount {
-        tweet_id: String,
-        account_id: String,
-    },
+    #[error("cannot parse a date: {0}")]
+    Date(#[from] chrono::ParseError),
 }
 
 /// Every tweet's `account_id` matches an account in the same `Scraped`.

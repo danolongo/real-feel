@@ -1,14 +1,14 @@
 {
   "accounts": [
-    { "id": "9000000001", "handle": "fixture_alpha", "raw": { "id": "9000000001", "handle": "fixture_alpha" } },
-    { "id": "9000000002", "handle": "fixture_beta", "raw": { "id": "9000000002", "handle": "fixture_beta" } },
-    { "id": "9000000003", "handle": "fixture_gamma", "raw": { "id": "9000000003", "handle": "fixture_gamma" } }
+    {"id": "9000000001", "handle": "fixture_alpha", "joined_at": "2024-03-01T09:00:00Z", "followers": 120, "following": 45, "tweet_count": 900, "is_verified": true, "is_automated": false, "raw": {"id": "9000000001", "handle": "fixture_alpha"}},
+    {"id": "9000000002", "handle": "fixture_beta", "joined_at": "2023-07-15T12:30:00Z", "followers": 8, "following": 310, "tweet_count": 42, "is_verified": false, "is_automated": false, "raw": {"id": "9000000002", "handle": "fixture_beta"}},
+    {"id": "9000000003", "handle": "fixture_gamma", "joined_at": "2025-11-20T18:45:00Z", "followers": 5400, "following": 12, "tweet_count": 15000, "is_verified": false, "is_automated": true, "raw": {"id": "9000000003", "handle": "fixture_gamma"}}
   ],
   "tweets": [
-    { "id": "8000000001", "account_id": "9000000001", "text": "Fixture tweet one about AI.", "posted_at": "2026-01-01T10:00:00Z", "raw": {} },
-    { "id": "8000000002", "account_id": "9000000001", "text": "Fixture tweet two about AI.", "posted_at": "2026-01-01T10:05:00Z", "raw": {} },
-    { "id": "8000000003", "account_id": "9000000002", "text": "Fixture tweet three about AI.", "posted_at": "2026-01-01T11:00:00Z", "raw": {} },
-    { "id": "8000000004", "account_id": "9000000003", "text": "Fixture tweet four about AI.", "posted_at": null, "raw": {} },
-    { "id": "8000000005", "account_id": "9000000003", "text": "Fixture tweet five about AI.", "posted_at": "2026-01-01T12:00:00Z", "raw": {} }
+    {"id": "8000000001", "account_id": "9000000001", "text": "Fixture tweet one about AI.", "posted_at": "2026-01-01T10:00:00Z", "raw": {}},
+    {"id": "8000000002", "account_id": "9000000001", "text": "Fixture tweet two about AI.", "posted_at": "2026-01-01T10:05:00Z", "raw": {}},
+    {"id": "8000000003", "account_id": "9000000002", "text": "Fixture tweet three about AI.", "posted_at": "2026-01-01T11:00:00Z", "raw": {}},
+    {"id": "8000000004", "account_id": "9000000003", "text": "Fixture tweet four about AI.", "posted_at": null, "raw": {}},
+    {"id": "8000000005", "account_id": "9000000003", "text": "Fixture tweet five about AI.", "posted_at": "2026-01-01T12:00:00Z", "raw": {}}
   ]
 }

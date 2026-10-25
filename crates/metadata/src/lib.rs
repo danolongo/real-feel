@@ -53,6 +53,12 @@ mod tests {
         Account {
             id: "a1".into(),
             handle: handle.into(),
+            joined_at: None,
+            followers: None,
+            following: None,
+            tweet_count: None,
+            is_verified: None,
+            is_automated: None,
             raw: json!({"followers": 12}),
         }
     }
