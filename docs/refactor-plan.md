@@ -306,10 +306,10 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
 - [x] **0.10** You add the Vale configuration: passive voice, sentence length, and a substitution list from the glossary's "Do not use" column. M1 removed Vale. Claude now checks the writing rules itself.
 - [x] **0.11** You write `docs/local-dev.md` and a decision record for each row in [Decisions](#decisions). The records stay on your machine: git ignores `docs/decisions/`.
 - [x] **0.12** You rewrite `README.md` for the new architecture. `.claude/CLAUDE.md` stays local: git ignores `.claude/`.
-- [ ] **0.13** You start the tasks that wait on other companies:
+- [x] **0.13** You start the tasks that wait on other companies:
   - Activate the Datadog student plan.
   - Create a Cloudflare account and a Workers AI API token. Store the token in `.env`, never in git. You host Firecrawl yourself, so it needs no account.
-- [ ] **0.14** You create an AWS Budgets alert with a monthly limit you choose.
+- [x] **0.14** You create an AWS Budgets alert with a monthly limit you choose.
 - [x] **0.15** You add a CI check on every PR. It rejects a commit or PR title that breaks the [commit format](writing-rules.md#commit-messages). It rejects any commit with a `Co-authored-by` line.
 
 **Docs:** `docs/local-dev.md`, `docs/decisions/0001`–`0017` (local), `crates/api/README.md`.
@@ -332,11 +332,11 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
 
 **Tasks**
 
-- [ ] **1.1** `crates/types`: You define `Query`, `QueryStatus`, `Tweet`, `Account`, `ScraperJob`, `ClassifierJob`, `Prediction`, `MetadataVersion`, `QuestionVersion`, `ModelVersion`. Every type derives `serde`. No type derives `schemars` yet (D16).
+- [x] **1.1** `crates/types`: You define `Query`, `QueryStatus`, `Tweet`, `Account`, `ScraperJob`, `ClassifierJob`, `Prediction`, `MetadataVersion`, `QuestionVersion`, `ModelVersion`. Every type derives `serde`. No type derives `schemars` yet (D16).
   - `ScraperJob` carries the query ID and the trace context.
   - `ClassifierJob` carries the query ID, the batch number, the tweet IDs, and the trace context. It never carries tweet text, so it stays far below the SQS message size limit.
   - `Prediction` holds what Postgres stores: tweet ID, the three versions, and bot probability. `ModelInput` waits for M2, because its shape depends on Cloudflare's request format.
-- [ ] **1.2** `crates/db`: You write `sqlx` migrations for these tables:
+- [x] **1.2** `crates/db`: You write `sqlx` migrations for these tables:
   - `queries`: `id` (`uuid`), `text`, `status` (Postgres enum `query_status`), `error` (null until `failed`), `batch_count` (null until the scraper worker sets it), `created_at`, `updated_at`
   - `accounts`: `id` (`text`), `handle`, `raw` (`jsonb`), `updated_at`
   - `tweets`: `id` (`text`), `account_id`, `text`, `posted_at` (nullable), `raw` (`jsonb`), `updated_at`
@@ -345,23 +345,23 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
   - `predictions`: `tweet_id`, `model_version`, `metadata_version`, `question_version`, `p_bot`, `raw` (`jsonb`), `created_at`. Primary key: the first four columns.
 
   `accounts` and `tweets` stay minimal on purpose. `raw` holds every field the scraper returns. Task 2.2 adds columns once spike 2.1 shows what Firecrawl returns. IDs are `text` because the spike may show that a page exposes only the handle. Task 2.5 adds the `embedding` column, because pgvector needs a fixed dimension and O2 sets it.
-- [ ] **1.3** `crates/db`: You write the repository functions. They are the only code that runs SQL.
+- [x] **1.3** `crates/db`: You write the repository functions. They are the only code that runs SQL.
   - Each worker write upserts with `ON CONFLICT … DO UPDATE … WHERE (columns) IS DISTINCT FROM (excluded columns)`. A second call with the same input changes no row. `updated_at` changes only when content changes.
   - `POST /queries` inserts. Each query gets a new ID, so this write is never an upsert.
   - Each status change is a conditional `UPDATE` from the [Status changes](#status-changes) table. The function returns whether Postgres applied the change.
   - Git ignores the `sqlx` offline data in `.sqlx/`. It stays on your machine.
-- [ ] **1.4** `crates/queue`: You write typed `send`, `receive`, and `delete` functions over SQS.
+- [x] **1.4** `crates/queue`: You write typed `send`, `receive`, and `delete` functions over SQS.
   - `receive` asks SQS for the `ApproximateReceiveCount` attribute. It returns the job, the receive count, and the receipt handle.
   - `send` writes the current trace context into the job. `receive` restores it, so a worker's spans join the API's trace.
   - Queue URLs come from configuration: `SCRAPER_QUEUE_URL`, `CLASSIFIER_QUEUE_URL`.
-- [ ] **1.5** `crates/telemetry`: You set up `tracing` with JSON logs and an OpenTelemetry exporter. A missing endpoint turns the exporter off. You write the helpers that read and write the W3C `traceparent` value.
-- [ ] **1.6** `crates/api`: You build four endpoints with axum:
+- [x] **1.5** `crates/telemetry`: You set up `tracing` with JSON logs and an OpenTelemetry exporter. A missing endpoint turns the exporter off. You write the helpers that read and write the W3C `traceparent` value.
+- [x] **1.6** `crates/api`: You build four endpoints with axum:
   - `POST /queries`: accepts `{ "text": … }`. Text must hold 1 to 512 characters after trimming. The API inserts a `queued` query, sends a scraper job, and returns `202` with `{ "query_id": … }`. If the send fails, the API sets the status to `failed`, records the error, and returns `503`.
   - `GET /queries/{id}?limit=&after=`: returns the query status. When the status is `done`, it also returns one page of the result. The API sorts tweets by `tweet_id`. `after` is the cursor: the last `tweet_id` of the previous page. `limit` defaults to 50, with a maximum of 200. The response carries `next_cursor`, which is null on the last page.
   - `GET /health`: the liveness check. It returns `200` while the process runs. It checks no dependency, so a short Postgres outage never marks every API instance unhealthy.
   - `GET /ready`: the readiness check. It returns `200` when Postgres and SQS respond, and `503` when either does not.
-- [ ] **1.7** `crates/api`: The result shows one prediction for each tweet. The API selects it with `DEFAULT_MODEL_VERSION`, `DEFAULT_METADATA_VERSION`, and `DEFAULT_QUESTION_VERSION` from configuration. The result carries `p_bot` only. `is_bot` arrives in task 4.7, when O4 sets the bot threshold.
-- [ ] **1.8** `crates/api`: You return every error as JSON: `{ "code": …, "message": … }`. The error codes:
+- [x] **1.7** `crates/api`: The result shows one prediction for each tweet. The API selects it with `DEFAULT_MODEL_VERSION`, `DEFAULT_METADATA_VERSION`, and `DEFAULT_QUESTION_VERSION` from configuration. The result carries `p_bot` only. `is_bot` arrives in task 4.7, when O4 sets the bot threshold.
+- [x] **1.8** `crates/api`: You return every error as JSON: `{ "code": …, "message": … }`. The error codes:
 
   | Code | HTTP status | When |
   |------|-------------|------|
@@ -372,8 +372,8 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
   | `queue_unavailable` | 503 | SQS rejected the scraper job. |
   | `internal` | 500 | Any other failure. The message hides internal detail. |
 
-- [ ] **1.9** You add the `integration` job to `ci.yml`. You add `SQLX_OFFLINE=true` to the `rust` job. See [`ci.yml` jobs](#ciyml-jobs).
-- [ ] **1.10** You add the new terms to the glossary. The terms: upsert, repository function, receive count, trace context, page, cursor, liveness check, readiness check, error code.
+- [x] **1.9** You add the `integration` job to `ci.yml`. The `rust` job starts Postgres and applies the migrations, so the `sqlx` macros compile with no `.sqlx/`. See [`ci.yml` jobs](#ciyml-jobs).
+- [x] **1.10** You add the new terms to the glossary. The terms: upsert, repository function, receive count, trace context, page, cursor, liveness check, readiness check, error code.
 
 #### Status changes
 
@@ -392,15 +392,15 @@ Postgres applies a status change only from the statuses this table allows. Any o
 
 **Gate**
 
-- [ ] An integration test sends `POST /queries` and then `GET /queries/{id}`. It sees status `queued`.
-- [ ] The same test receives a scraper job from its own queue. The job's query ID matches, and the job carries a trace context.
-- [ ] A test points the API at a queue that does not exist. `POST /queries` returns `503` with `queue_unavailable`, and the query status is `failed`.
-- [ ] A test calls each upsert repository function twice with the same input. The second call reports zero changed rows.
-- [ ] A test tries every status change that the table forbids. Each one returns `false` and leaves the status unchanged.
-- [ ] A test seeds a `done` query with 120 tweets and predictions. It pages through with `limit=50` and gets 50, 50, and 20 tweets, then a null `next_cursor`.
-- [ ] A test checks each error code against its HTTP status.
-- [ ] `GET /health` returns `200` with Postgres stopped. `GET /ready` returns `503`.
-- [ ] CI runs the integration tests on every PR. The `rust` job passes with no database.
+- [x] An integration test sends `POST /queries` and then `GET /queries/{id}`. It sees status `queued`.
+- [x] The same test receives a scraper job from its own queue. The job's query ID matches, and the job carries a trace context.
+- [x] A test points the API at a queue that does not exist. `POST /queries` returns `503` with `queue_unavailable`, and the query status is `failed`.
+- [x] A test calls each upsert repository function twice with the same input. The second call reports zero changed rows.
+- [x] A test tries every status change that the table forbids. Each one returns `false` and leaves the status unchanged.
+- [x] A test seeds a `done` query with 120 tweets and predictions. It pages through with `limit=50` and gets 50, 50, and 20 tweets, then a null `next_cursor`.
+- [x] A test checks each error code against its HTTP status.
+- [x] `GET /health` returns `200` with Postgres stopped. `GET /ready` returns `503`.
+- [x] CI runs the integration tests on every PR. The `rust` job passes with no `.sqlx/`.
 
 ---
 
