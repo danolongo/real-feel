@@ -46,5 +46,5 @@ variable "config" {
 variable "instance_type" {
   description = "EC2 instance type for the API and worker instances."
   type        = string
-  default     = "t3.small"
+  default     = "t4g.small"
 }

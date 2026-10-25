@@ -127,11 +127,11 @@ After a new `apply`, repeat steps 5, 6, 7, and 8. A new `apply` creates new plac
 
 ## Costs
 
-These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-25 and 730 hours per month. The EC2 price comes from a [third-party price table](https://calculator.holori.com/aws/ec2/t3.small/us-east-1), and the RDS price comes from a [third-party RDS price table](https://www.bytebase.com/dbcost/rds/instance/db.t4g.micro/). The gp3 rate, the public IPv4 rate, and the ECR, SQS, Secrets Manager, and S3 rates come from AWS's published list prices. Nobody re-checked them on 2026-10-25. Check the [AWS Pricing Calculator](https://calculator.aws/) before you rely on the totals.
+These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-25 and 730 hours per month. The EC2 price comes from a [third-party price table](https://calculator.holori.com/aws/ec2/t4g.small/us-east-1), and the RDS price comes from a [third-party RDS price table](https://www.bytebase.com/dbcost/rds/instance/db.t4g.micro/). The gp3 rate, the public IPv4 rate, and the ECR, SQS, Secrets Manager, and S3 rates come from AWS's published list prices. Nobody re-checked them on 2026-10-25. Check the [AWS Pricing Calculator](https://calculator.aws/) before you rely on the totals.
 
 | Item | Rate | Monthly (USD) |
 |------|------|---------------|
-| 2× EC2 `t3.small` | 0.0208 USD/h each | 30.37 |
+| 2× EC2 `t4g.small` (Graviton, arm64) | 0.0168 USD/h each | 24.53 |
 | RDS `db.t4g.micro`, single-AZ | about 0.016 USD/h | 11.68 |
 | RDS storage, 20 GB gp3 | 0.115 USD/GB-month | 2.30 |
 | 2 to 3 public IPv4 addresses | 0.005 USD/h each | 7.30 to 10.95 |
@@ -139,7 +139,7 @@ These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-
 | SQS, four queues | first 1 million requests free, then 0.40 USD per million | 0 to 0.50 |
 | Secrets Manager, one secret | 0.40 USD/month | 0.40 |
 | S3 state bucket | a few KB | under 0.01 |
-| **Total** | | **about 52 to 56** |
+| **Total** | | **about 46 to 50** |
 
 - The two instances hold two public IPv4 addresses. A third address appears while you replace an instance.
 - Data transfer, CloudWatch Logs, and the Datadog subscription cost extra.
