@@ -79,6 +79,16 @@ Integration tests need the stack from step 2 and the variables in `.env.example`
 
 CI runs the integration tests of every crate that declares the feature.
 
+## Run the end-to-end test
+
+The end-to-end test starts the API and both worker roles in one process. It uses the fixture scraper, the fake classifier, and the fake embedder, and creates its own queues. It posts a query over HTTP and waits up to 60 seconds for the status `done`. Then it checks for a prediction on every tweet. It needs the stack from step 2 of "Set up", the exported variables, and the applied migrations from "Run the tests".
+
+```bash
+cargo test -p worker --features e2e
+```
+
+CI runs the same command in the `e2e` job.
+
 ## Compile the SQL checks
 
 The `sqlx` macros check every SQL query at compile time against the database in `DATABASE_URL`. With the stack down, set `SQLX_OFFLINE=true`, and the macros read your local `.sqlx/` instead. Git ignores `.sqlx/`, so it never leaves your machine. Install `sqlx-cli` once.
