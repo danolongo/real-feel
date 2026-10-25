@@ -59,6 +59,8 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | scraper job | noun | A job that tells a scraper worker to fetch tweets for one query. | scrape job, crawl job |
 | classifier job | noun | A job that tells a classifier worker to classify one batch of tweets. | classify job |
 | dead-letter queue | noun | The queue that receives a job after the job fails too many times. Short form: DLQ. | error queue |
+| visibility timeout | noun | The time SQS hides a received job from other workers. After it ends, SQS delivers the job again. | lock time |
+| job deadline | noun | The time a worker gives one job before it abandons the job. `JOB_DEADLINE_SECS` sets it. | time limit |
 | batch | noun | An ordered list of model inputs that the classifier sends to an inference backend in one HTTP request. Never a verb. | chunk, group |
 | dynamic batching | noun | An inference server collecting HTTP requests for a short time and running them on the GPU together. | micro-batching |
 | fake | noun | A test version of a trait that returns fixed output and makes no network calls. Never an adjective. | mock, stub, dummy |

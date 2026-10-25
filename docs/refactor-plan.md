@@ -69,14 +69,16 @@ Datadog watches every component. OpenTelemetry carries the traces.
 5. A scraper worker takes the scraper job. It sets the query status to `scraping`.
 6. The scraper fetches tweets and accounts through Firecrawl.
 7. The scraper worker upserts the tweets and accounts into Postgres.
-8. The scraper worker splits the tweets into batches and numbers them from 0. It sends one classifier job for each batch. A classifier job carries tweet IDs, never tweet text.
-9. The scraper worker records the batch count. It sets the query status to `classifying`. If the scraper found no tweets, the scraper worker sets the status to `done` instead.
-10. A classifier worker takes a classifier job. It builds one model input for each tweet.
+8. The scraper worker sorts the query's tweets by tweet ID. It splits them into batches of `BATCH_SIZE` and numbers them from 0. In one `UPDATE`, it records the batch count and sets the query status to `classifying`. If the scraper found no tweets, the scraper worker sets the status to `done` instead.
+9. The scraper worker sends one classifier job for each batch. A classifier job carries tweet IDs, never tweet text.
+10. A classifier worker takes a classifier job. If a `query_batches` row already exists for its batch, the worker deletes the job and stops. Otherwise it builds one model input for each tweet that has no prediction for the current versions.
 11. The classifier sends the batch to the inference backend. It gets back one bot probability for each model input.
 12. The embedder creates one embedding for each tweet.
 13. The classifier worker opens one Postgres transaction. It locks the query row, upserts the predictions and embeddings, and upserts one `query_batches` row for its batch number.
 14. In the same transaction, the classifier worker counts the `query_batches` rows. When the count equals the batch count, it sets the query status to `done`.
 15. The user polls `GET /queries/{id}`. The API returns the result, one page at a time, once the status is `done`.
+
+Step 8 comes before step 9 on purpose. If the scraper worker sent classifier jobs first, a fast classifier worker could finish the last batch while the batch count was still null. No worker would set `done`.
 
 The row lock in step 13 matters. Without it, two workers that finish the last two batches at once could each count one batch short. Neither would set `done`.
 
@@ -86,9 +88,14 @@ The row lock in step 13 matters. Without it, two workers that finish the last tw
 - If the API cannot send the scraper job, the API sets the query status to `failed` and returns `503`.
 - Postgres applies a status change only when the current status allows it. See [Status changes](#status-changes). A retried scraper job cannot move a `done` query back to `scraping`.
 - The worker deletes a job only after Postgres commits.
+- A redelivered scraper job can find the query in `classifying`. The scraper worker skips the scrape. It rebuilds the same batches from the stored tweets and sends the classifier jobs again. The `query_batches` rows make the repeats harmless.
+- The scraper worker writes the batch count only while it is null or equal to the new count. A late scraper job never changes it.
+- Each queue has a visibility timeout of 300 seconds. Each worker abandons a job after `JOB_DEADLINE_SECS`, which stays below the visibility timeout. SQS never redelivers a job that a worker still runs.
 - When a job fails, SQS makes the job visible again after the visibility timeout. A worker retries it.
 - After five failed receives, SQS moves the job to the dead-letter queue.
 - On the fifth receive, the worker reads `ApproximateReceiveCount`. If that attempt fails, the worker sets the query status to `failed` and records the error.
+- A worker that crashes on the fifth receive never sets `failed`. So each worker role also reads its own dead-letter queue. For each job there, the worker sets the query status to `failed` and deletes the job.
+- One batch that reaches the dead-letter queue fails the whole query. The API returns no partial result.
 
 ## Decisions
 
@@ -234,7 +241,7 @@ GitHub Actions runs every workflow.
 - **docs**: `markdownlint`, `lychee` for links. Claude checks the writing rules itself, so no linter runs them.
 - **commits** (PRs only): `scripts/check-commits.sh` checks the PR title and every commit against the commit format. It rejects any `Co-authored-by` line.
 - **integration** (from M1): after checkout, CI runs `docker compose up -d --wait` to start Postgres (pgvector) and LocalStack. CI applies the migrations with `psql`. CI then runs `cargo test --workspace --features integration`. Integration tests sit behind the `integration` Cargo feature, so the `rust` job never runs them. Each test creates its own queues with unique names and deletes them at the end, so parallel tests never read each other's jobs.
-- **e2e** (from M2): Docker Compose runs the whole stack with the fixture scraper, the fake classifier, and the fake embedder. The test sends a query and polls until the status is `done`.
+- **e2e** (from M2): Docker Compose runs Postgres and LocalStack. One test process runs the API and both worker roles with the fixture scraper, the fake classifier, and the fake embedder. The test sends a query and polls until the status is `done`.
 - **python** (from M6, only when `inference/` changes): `ruff`, `pyright --strict`, `pytest`. A check confirms the generated Python models match the current JSON Schema.
 - **contract** (from M6): the reference server's request and response pass validation against the JSON Schema from `crates/types`.
 
@@ -407,9 +414,32 @@ Postgres applies a status change only from the statuses this table allows. Any o
 
 **Goal:** a query travels the full flow locally and ends with status `done`. The hosted backend classifies.
 
+**Task order**
+
+- 2.1 comes before 2.2. 2.2 comes before 2.6.
+- 2.3, 2.4, and 2.5 start at once, beside 2.1. They use the M1 `Tweet` and `Account` types.
+- 2.6 and 2.7 need 2.2 to 2.5. 2.8 and 2.9 need 2.6 and 2.7.
+- 2.10 needs 2.4. 2.11 needs every other task.
+
+**Configuration**
+
+| Variable | Default | Read by |
+|----------|---------|---------|
+| `SCRAPER` | `firecrawl` | worker: `firecrawl` or `fixture` |
+| `FIRECRAWL_URL` | `http://localhost:3002` | scraper |
+| `CLASSIFIER` | `hosted` | worker: `hosted` or `fake` |
+| `EMBEDDER` | `hosted` | worker: `hosted` or `fake` |
+| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | none | classifier, embedder |
+| `CLASSIFIER_RPS` | `5` | classifier: the requests-per-second limit |
+| `BATCH_SIZE` | `25` | scraper worker |
+| `JOB_DEADLINE_SECS` | `240` | worker |
+| `SCRAPER_DLQ_URL`, `CLASSIFIER_DLQ_URL` | LocalStack URLs | worker |
+
+The worker reads the M1 variables too. `.env.example` lists every variable. `infra/localstack/init.sh` sets the 300-second visibility timeout.
+
 **Tasks**
 
-- [ ] **2.1** **Spike:** You test self-hosted Firecrawl against an X search page, a profile page, and a tweet page. You record which fields come back. You write `docs/reports/spike-firecrawl-x.md` and a decision record that settles O1.
+- [ ] **2.1** **Spike:** You test self-hosted Firecrawl against an X search page, a profile page, and a tweet page. You record which fields come back. You write `docs/reports/spike-firecrawl-x.md` and a decision record that settles O1. You add the Firecrawl setup to `docs/local-dev.md`. If self-hosted Firecrawl cannot fetch X, you pick another O1 option before 2.2 starts. The fixture scraper keeps the e2e gate independent of that choice.
 - [ ] **2.2** `crates/scraper`: You define `trait Scraper`. You write the Firecrawl implementation and a fixture implementation. The fixture implementation reads JSON files from `crates/scraper/fixtures/`. You add migrations for the `accounts` and `tweets` columns that spike 2.1 confirms, and you settle what `id` holds.
 - [ ] **2.3** `crates/metadata`: You define `ModelInput` in `crates/types`. You write metadata version `v1` (tweet text only) and question version `v1` (bot or human). The functions are pure: the same tweet and account always give the same model input.
 - [ ] **2.4** `crates/classifier`: You define `trait Classifier`. You write the hosted implementation and the fake. The hosted implementation:
@@ -417,14 +447,14 @@ Postgres applies a status change only from the statuses this table allows. Any o
   - retries on `429` and `5xx` with exponential backoff and jitter
   - stays under a configured requests-per-second limit
 - [ ] **2.5** `crates/embedder`: You settle O2 with a decision record. You define `trait Embedder`. You write the hosted implementation and the fake. You add a migration that creates the `embedding` column on `tweets`, with the dimension O2 sets.
-- [ ] **2.6** `crates/worker`, role `scraper`: the worker takes a scraper job and carries out steps 5–9 of the [request flow](#request-flow). `BATCH_SIZE` sets the batch size.
-- [ ] **2.7** `crates/worker`, role `classifier`: the worker takes a classifier job and carries out steps 10–14. The `query_batches` upsert, the batch count check, and the status change happen in one Postgres transaction that locks the query row first.
-- [ ] **2.8** `crates/worker`: You add the [failure flow](#failure-flow). A fake classifier that fails N times proves the retry and the DLQ.
-- [ ] **2.9** You add the `e2e` job to `ci.yml`.
-- [ ] **2.10** You add `nightly.yml` with a contract test against the hosted backend.
-- [ ] **2.11** You write `scripts/smoke.sh`. It sends one real query through Firecrawl and the hosted backend on your machine.
+- [ ] **2.6** `crates/worker`, role `scraper`: the worker takes a scraper job and carries out steps 5–9 of the [request flow](#request-flow). `BATCH_SIZE` sets the batch size. A redelivered scraper job follows the [failure flow](#failure-flow).
+- [ ] **2.7** `crates/worker`, role `classifier`: the worker takes a classifier job and carries out steps 10–14. The worker opens one Postgres transaction and locks the query row first. In that transaction it upserts the predictions, the embeddings, and the `query_batches` row, counts the batches, and changes the status. The race test runs this commit step from two tasks at once behind a `tokio::sync::Barrier`.
+- [ ] **2.8** `crates/worker`: You add the [failure flow](#failure-flow), the job deadline, and the dead-letter queue reader. A fake classifier that fails N times proves the retry and the DLQ. The tests create their own queues with a 1-second visibility timeout and `maxReceiveCount` 5.
+- [ ] **2.9** You add the `e2e` job to `ci.yml`. The test sits in `crates/worker/tests/e2e.rs` behind an `e2e` feature. Docker Compose runs Postgres and LocalStack. The test starts the API router and both worker roles in one process, with the fixture scraper, the fake classifier, and the fake embedder. A fixture of 5 tweets and `BATCH_SIZE=2` give 3 batches. The test polls `GET /queries/{id}` until the status is `done`.
+- [ ] **2.10** You add `nightly.yml` with a contract test against the hosted backend. It reads `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from GitHub secrets. It sends one fixed model input and asserts one bot probability from 0 to 1. A failure fails the workflow, and GitHub emails you.
+- [ ] **2.11** You write `scripts/smoke.sh`. It sends one real query through Firecrawl and the hosted backend on your machine. It passes when the status is `done`, the result holds at least 10 tweets, and every tweet has a prediction.
 
-**Docs:** a `README.md` for `scraper`, `metadata`, `classifier`, `embedder`, `worker`. The `metadata` README defines `v1` field by field. You write `docs/reports/smoke-m2.md` with one real query and its result.
+**Docs:** a `README.md` for `scraper`, `metadata`, `classifier`, `embedder`, `worker`. The `metadata` README defines `v1` field by field. You write `docs/reports/smoke-m2.md` with the query text, the tweet count, the batch count, and the run time.
 
 **Gate**
 
@@ -432,6 +462,8 @@ Postgres applies a status change only from the statuses this table allows. Any o
 - [ ] A test shows a failing job reaching the DLQ and the query status becoming `failed`.
 - [ ] A test shows a duplicated classifier job producing no duplicate predictions and no extra `query_batches` row.
 - [ ] A test runs two classifier workers on the last two batches at once. The query ends with status `done`.
+- [ ] A test redelivers a scraper job after the status reaches `classifying`. The query still ends with status `done`, with one `query_batches` row for each batch.
+- [ ] A test leaves a job in the dead-letter queue without a `failed` status. The dead-letter queue reader sets the status to `failed`.
 - [ ] A test with zero scraped tweets ends with status `done`.
 - [ ] `scripts/smoke.sh` completes one real query. The smoke report records it.
 - [ ] Decision records settle O1 and O2.
