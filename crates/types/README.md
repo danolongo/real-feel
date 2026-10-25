@@ -8,7 +8,7 @@ Every other crate depends on `types`. `types` depends on no crate in the workspa
 
 ## Terms
 
-See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, scraper job, classifier job, prediction, model version, metadata version, question version.
+See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, scraper job, classifier job, model input, prediction, model version, metadata version, question version.
 
 ## How it works
 
@@ -18,7 +18,9 @@ See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, 
 4. A job carries IDs only. Postgres holds the data.
 5. `trace_context` holds a W3C `traceparent` value, so one trace follows a query across the API and the workers.
 
-`ModelInput` arrives in M2. No type derives `schemars` until task 6.2.
+6. `ModelInput` holds one model input. The `metadata` crate builds it. The classifier sends it to the inference backend.
+
+No type derives `schemars` until task 6.2.
 
 ## Run it
 
