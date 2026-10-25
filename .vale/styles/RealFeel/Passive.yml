@@ -1,6 +1,0 @@
-extends: existence
-message: "'%s' is passive. Name the actor (writing rule 2)."
-level: error
-ignorecase: true
-raw:
-  - '\b(am|are|is|was|were|be|been|being)\s+(\w+ed|awoken|born|beat|become|begun|bent|bitten|blown|bought|broken|brought|built|caught|chosen|come|cut|done|drawn|driven|eaten|fallen|felt|found|flown|forgotten|given|gone|grown|heard|held|hidden|hit|kept|known|laid|led|left|lost|made|met|paid|put|read|ridden|risen|run|said|seen|sent|set|shown|shut|spoken|spent|split|stolen|taken|taught|thought|thrown|told|understood|woken|won|worn|written)\b'

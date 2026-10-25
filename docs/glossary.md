@@ -63,6 +63,15 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | dynamic batching | noun | An inference server collecting HTTP requests for a short time and running them on the GPU together. | micro-batching |
 | fake | noun | A test version of a trait that returns fixed output and makes no network calls. Never an adjective. | mock, stub, dummy |
 | fixture | noun | Stored test data that replaces a network response. | sample data, mock data |
+| upsert | verb | To insert a row, or to update the row when its key exists and its content differs. A second upsert with the same input changes no row. | insert-or-update, merge |
+| repository function | noun | A function in `crates/db` that runs SQL. No other code runs SQL. | query function, data access function |
+| receive count | noun | How many times SQS has delivered one job. The worker reads it from `ApproximateReceiveCount`. | delivery count, attempt count |
+| trace context | noun | The W3C `traceparent` value that a job carries, so the spans of the API and the worker join one trace. | trace header, trace ID |
+| page | noun | One slice of a result that the API returns for one request. | slice, section |
+| cursor | noun | The last `tweet_id` of the previous page. You pass it as `after` to get the next page. | offset, page token |
+| liveness check | noun | The `GET /health` route. It returns `200` while the process runs and checks no dependency. | health probe |
+| readiness check | noun | The `GET /ready` route. It returns `200` when Postgres and SQS respond, and `503` when either does not. | ready probe |
+| error code | noun | The `code` field of an API error response, such as `invalid_query`. | error type, error name |
 
 ## Models
 

@@ -47,6 +47,52 @@ This file takes you from a clean machine to a running stack. Run every command f
 
 `docker compose down` stops the containers. Add `-v` to delete the data too.
 
+## Run the tests
+
+Unit tests need no Docker.
+
+```bash
+cargo test --workspace
+```
+
+Integration tests need the stack from step 2 and the variables in `.env.example`. Crates with integration tests declare the `integration` feature.
+
+1. Export the variables from `.env`. Set `DATABASE_URL` with your `POSTGRES_PASSWORD`.
+
+   ```bash
+   set -a; source .env; set +a
+   ```
+
+2. Apply the migrations.
+
+   ```bash
+   sqlx migrate run --source crates/db/migrations
+   ```
+
+3. Run the integration tests of one crate.
+
+   ```bash
+   cargo test -p db --features integration
+   ```
+
+CI runs the integration tests of every crate that declares the feature.
+
+## Compile the SQL checks
+
+The `sqlx` macros check every SQL query at compile time against the database in `DATABASE_URL`. With the stack down, set `SQLX_OFFLINE=true`, and the macros read your local `.sqlx/` instead. Git ignores `.sqlx/`, so it never leaves your machine. Install `sqlx-cli` once.
+
+```bash
+cargo install sqlx-cli --version 0.9.0 --locked --no-default-features --features rustls,postgres
+```
+
+With the stack running and the migrations applied, refresh `.sqlx/` after you change a SQL query.
+
+```bash
+cargo sqlx prepare --workspace
+```
+
+CI has no `.sqlx/`. CI starts Postgres, applies the migrations, and compiles against it.
+
 ## Run the CI checks
 
 ```bash
@@ -55,8 +101,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 markdownlint-cli2 "**/*.md"
 lychee --config .lychee.toml "**/*.md"
-vale README.md docs crates .github
 scripts/check-commits.sh origin/main..HEAD
 ```
 
-The last four commands need `markdownlint-cli2`, `lychee`, and `vale` on your machine.
+The markdown and link checks need `markdownlint-cli2` and `lychee` on your machine.

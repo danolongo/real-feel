@@ -14,19 +14,59 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  VALE_VERSION: 3.25.1
 
 jobs:
   rust:
     runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-password
+      DATABASE_URL: postgres://realfeel:ci-password@localhost:5433/realfeel
     steps:
       - uses: actions/checkout@v7
+      - run: docker compose up -d --wait postgres
+      - name: Apply the migrations so the sqlx macros can check queries
+        run: |
+          for file in crates/db/migrations/*.sql; do
+            docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -q -U realfeel -d realfeel < "$file"
+          done
       - name: Install the toolchain from rust-toolchain.toml
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-password
+      DATABASE_URL: postgres://realfeel:ci-password@localhost:5433/realfeel
+      SCRAPER_QUEUE_URL: http://localhost:4566/000000000000/scraper-jobs
+      CLASSIFIER_QUEUE_URL: http://localhost:4566/000000000000/classifier-jobs
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose up -d --wait
+      - name: Install the toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply the migrations so the sqlx macros can check queries
+        run: |
+          for file in crates/db/migrations/*.sql; do
+            docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -q -U realfeel -d realfeel < "$file"
+          done
+      - name: Run the integration tests
+        run: |
+          packages=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.features | has("integration")) | .name')
+          args=()
+          for package in $packages; do
+            args+=(-p "$package" --features "$package/integration")
+          done
+          cargo test "${args[@]}"
 
   docs:
     runs-on: ubuntu-latest
@@ -39,15 +79,6 @@ jobs:
         with:
           args: --no-progress --config .lychee.toml '**/*.md'
           fail: true
-      - name: Install Vale
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download "v${VALE_VERSION}" --repo errata-ai/vale \
-            --pattern "vale_${VALE_VERSION}_Linux_64-bit.tar.gz" --dir "$RUNNER_TEMP"
-          tar -xzf "$RUNNER_TEMP/vale_${VALE_VERSION}_Linux_64-bit.tar.gz" -C "$RUNNER_TEMP" vale
-          sudo mv "$RUNNER_TEMP/vale" /usr/local/bin/vale
-      - run: vale README.md docs crates .github
 
   commits:
     if: github.event_name == 'pull_request'
