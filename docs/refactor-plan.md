@@ -36,7 +36,7 @@ You build this system to learn. You also build it to run at serious load. Two ou
 User ──HTTP──▶ API (Rust, axum, EC2) ──────────▶ Postgres + pgvector (RDS)
                   │                                   ▲
                   │ scraper job                       │ tweets, accounts,
-                  ▼                                   │ predictions, embeddings
+                  ▼                                   │ predictions          
           queue: scraper-jobs                         │
                   │                                   │
                   ▼                                   │
@@ -50,12 +50,11 @@ User ──HTTP──▶ API (Rust, axum, EC2) ──────────▶
                   ▼                                   │
         worker, role: classifier ─────────────────────┘
           ├─ builds model inputs (metadata version, question version)
-          ├─ classifier ──▶ inference backend
-          │                  ├─ hosted backend: Clef-flash on Workers AI
-          │                  └─ self-hosted backend: inference server on GPU EC2
-          │                       ├─ reference server (Python)
-          │                       └─ candle server (Rust)
-          └─ embedder ──▶ embedding model
+          └─ classifier ──▶ inference backend
+                             ├─ hosted backend: Clef-flash on Workers AI
+                             └─ self-hosted backend: inference server on GPU EC2
+                                  ├─ reference server (Python)
+                                  └─ candle server (Rust)
 
 Datadog watches every component. OpenTelemetry carries the traces.
 ```
@@ -73,14 +72,13 @@ Datadog watches every component. OpenTelemetry carries the traces.
 9. The scraper worker sends one classifier job for each batch. A classifier job carries tweet IDs, never tweet text.
 10. A classifier worker takes a classifier job. If a `query_batches` row already exists for its batch, the worker deletes the job and stops. Otherwise it builds one model input for each tweet that has no prediction for the current versions.
 11. The classifier sends the batch to the inference backend. It gets back one bot probability for each model input.
-12. The embedder creates one embedding for each tweet.
-13. The classifier worker opens one Postgres transaction. It locks the query row, upserts the predictions and embeddings, and upserts one `query_batches` row for its batch number.
-14. In the same transaction, the classifier worker counts the `query_batches` rows. When the count equals the batch count, it sets the query status to `done`.
-15. The user polls `GET /queries/{id}`. The API returns the result, one page at a time, once the status is `done`.
+12. The classifier worker opens one Postgres transaction. It locks the query row, upserts the predictions, and upserts one `query_batches` row for its batch number.
+13. In the same transaction, the classifier worker counts the `query_batches` rows. When the count equals the batch count, it sets the query status to `done`.
+14. The user polls `GET /queries/{id}`. The API returns the result, one page at a time, once the status is `done`.
 
 Step 8 comes before step 9 on purpose. If the scraper worker sent classifier jobs first, a fast classifier worker could finish the last batch while the batch count was still null. No worker would set `done`.
 
-The row lock in step 13 matters. Without it, two workers that finish the last two batches at once could each count one batch short. Neither would set `done`.
+The row lock in step 12 matters. Without it, two workers that finish the last two batches at once could each count one batch short. Neither would set `done`.
 
 ### Failure flow
 
@@ -111,7 +109,7 @@ Each row becomes a decision record in M0. "Agreed" rows come from the design dis
 | D6 | Rust for the API, workers, eval tooling, and shared types. Python only for the reference server. | One language for every component you write. Rust types give compile-time checks across components. Python stays where Clef-flash's own code lives. | Agreed |
 | D7 | The API and workers run on EC2. | Fixed capacity makes load tests measure Real Feel's code, not Lambda's scaling. | Agreed |
 | D8 | Postgres holds query status. DynamoDB goes away. | One database is simpler than two. Postgres handles the load. | Agreed |
-| D9 | One Postgres instance, with connection pooling in M5. Sharding waits for M8. | A million tweets with embeddings fits in a few GB. Load tests must prove a need before you shard. | Agreed |
+| D9 | One Postgres instance, with connection pooling in M5. Sharding waits for M8. | A million tweets with their accounts and predictions fits in a few GB. Load tests must prove a need before you shard. | Agreed |
 | D10 | No load balancer until M5. Then an ALB with an Auto Scaling Group. | One API instance needs no load balancer. Scaling experiments need one. | Agreed |
 | D11 | You run Clef-flash on your own GPU instance (M6). | Learning goal. You own the model operations end to end. | Agreed |
 | D12 | Datadog for observability. The code emits OpenTelemetry. | The Datadog student plan is free for 2 years and covers 10 hosts. OpenTelemetry keeps the code vendor-neutral. | Agreed |
@@ -128,7 +126,7 @@ You make each decision before its deadline. Each decision ends in a decision rec
 | # | Question | Options | Deadline |
 |---|----------|---------|----------|
 | O1 | Can self-hosted Firecrawl fetch X search pages, profiles, and tweets? | Self-hosted Firecrawl; Apify actors; a third-party X data API | Settled in task 2.1: no. The scraper uses twitterapi.io. |
-| O2 | Which embedding model, and how many dimensions? | A Workers AI embedding model; a small embedding model that runs inside the worker | M2, task 2.5 |
+| O2 | Which embedding model, and how many dimensions? | A Workers AI embedding model; a small embedding model that runs inside the worker | M8, before the embeddings experiment |
 | O3 | Which eval set? | Accounts you hand-label from scraped tweets; Cresci-2017; both | M4, task 4.1 |
 | O4 | Which bot threshold? | 0.5 by default; tuned from the eval report | M4, task 4.7 |
 | O5 | How does Clef-flash's schema head run outside Cloudflare? | Hugging Face `transformers` with Cloudflare's code; custom code | M6, task 6.1 |
@@ -153,7 +151,6 @@ real-feel/
 │   ├── scraper/               # trait Scraper; twitterapi.io and fixture implementations
 │   ├── metadata/              # builds model inputs for each metadata version and question version
 │   ├── classifier/            # trait Classifier; hosted, self-hosted, and fake implementations
-│   ├── embedder/              # trait Embedder; hosted and fake implementations
 │   ├── api/                   # binary: axum HTTP server
 │   ├── worker/                # binary: --role scraper | classifier
 │   ├── eval/                  # binary: experiments and eval reports
@@ -241,7 +238,7 @@ GitHub Actions runs every workflow.
 - **docs**: `markdownlint`, `lychee` for links. Claude checks the writing rules itself, so no linter runs them.
 - **commits** (PRs only): `scripts/check-commits.sh` checks the PR title and every commit against the commit format. It rejects any `Co-authored-by` line.
 - **integration** (from M1): after checkout, CI runs `docker compose up -d --wait` to start Postgres (pgvector) and LocalStack. CI applies the migrations with `psql`. CI then runs `cargo test --workspace --features integration`. Integration tests sit behind the `integration` Cargo feature, so the `rust` job never runs them. Each test creates its own queues with unique names and deletes them at the end, so parallel tests never read each other's jobs.
-- **e2e** (from M2): Docker Compose runs Postgres and LocalStack. One test process runs the API and both worker roles with the fixture scraper, the fake classifier, and the fake embedder. The test sends a query and polls until the status is `done`.
+- **e2e** (from M2): Docker Compose runs Postgres and LocalStack. One test process runs the API and both worker roles with the fixture scraper and the fake classifier. The test sends a query and polls until the status is `done`.
 - **python** (from M6, only when `inference/` changes): `ruff`, `pyright --strict`, `pytest`. A check confirms the generated Python models match the current JSON Schema.
 - **contract** (from M6): the reference server's request and response pass validation against the JSON Schema from `crates/types`.
 
@@ -350,7 +347,7 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
   - `query_batches`: `query_id`, `batch_number`, `finished_at`. Primary key: the first two columns.
   - `predictions`: `tweet_id`, `model_version`, `metadata_version`, `question_version`, `p_bot`, `raw` (`jsonb`), `created_at`. Primary key: the first four columns.
 
-  `accounts` and `tweets` stay minimal on purpose. `raw` holds every field the scraper returns. Task 2.2 adds columns once spike 2.1 shows what the X data source returns. IDs are `text` because the spike may show that a page exposes only the handle. Task 2.5 adds the `embedding` column, because pgvector needs a fixed dimension and O2 sets it.
+  `accounts` and `tweets` stay minimal on purpose. `raw` holds every field the scraper returns. Task 2.2 adds columns once spike 2.1 shows what the X data source returns. IDs are `text` because the spike may show that a page exposes only the handle.
 - [x] **1.3** `crates/db`: You write the repository functions. They are the only code that runs SQL.
   - Each worker write upserts with `ON CONFLICT … DO UPDATE … WHERE (columns) IS DISTINCT FROM (excluded columns)`. A second call with the same input changes no row. `updated_at` changes only when content changes.
   - `POST /queries` inserts. Each query gets a new ID, so this write is never an upsert.
@@ -431,8 +428,7 @@ Postgres applies a status change only from the statuses this table allows. Any o
 | `TWITTERAPI_INTERVAL_SECS` | `5` | scraper: the pause between two requests. The free tier allows one request every 5 seconds. |
 | `FIXTURE_PATH` | `crates/scraper/fixtures/default.json` | worker, with `SCRAPER=fixture` |
 | `CLASSIFIER` | `hosted` | worker: `hosted` or `fake` |
-| `EMBEDDER` | `hosted` | worker: `hosted` or `fake` |
-| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | none | classifier, embedder |
+| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | none | classifier |
 | `CLASSIFIER_RPS` | `5` | classifier: the requests-per-second limit |
 | `BATCH_SIZE` | `25` | scraper worker |
 | `JOB_DEADLINE_SECS` | `240` | worker |
@@ -449,15 +445,15 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
   - reads Cloudflare's request format for Clef-flash and records it in the crate README
   - retries on `429` and `5xx` with exponential backoff and jitter
   - stays under a configured requests-per-second limit
-- [x] **2.5** `crates/embedder`: You settle O2 with a decision record. You define `trait Embedder`. You write the hosted implementation and the fake. You add a migration that creates the `embedding` column on `tweets`, with the dimension O2 sets.
+- [x] **2.5** ~~`crates/embedder`~~ Deferred to M8. You built a Workers AI embedder, then removed it, because no task reads embeddings. O2 moves to M8.
 - [x] **2.6** `crates/worker`, role `scraper`: the worker takes a scraper job and carries out steps 5–9 of the [request flow](#request-flow). `BATCH_SIZE` sets the batch size. A redelivered scraper job follows the [failure flow](#failure-flow).
-- [x] **2.7** `crates/worker`, role `classifier`: the worker takes a classifier job and carries out steps 10–14. The worker opens one Postgres transaction and locks the query row first. In that transaction it upserts the predictions, the embeddings, and the `query_batches` row, counts the batches, and changes the status. The race test runs this commit step from two tasks at once behind a `tokio::sync::Barrier`.
+- [x] **2.7** `crates/worker`, role `classifier`: the worker takes a classifier job and carries out steps 10–13. The worker opens one Postgres transaction and locks the query row first. In that transaction it upserts the predictions and the `query_batches` row, counts the batches, and changes the status. The race test runs this commit step from two tasks at once behind a `tokio::sync::Barrier`.
 - [x] **2.8** `crates/worker`: You add the [failure flow](#failure-flow), the job deadline, and the dead-letter queue reader. A fake classifier that fails N times proves the retry and the DLQ. The tests create their own queues with a 1-second visibility timeout and `maxReceiveCount` 5.
-- [x] **2.9** You add the `e2e` job to `ci.yml`. The test sits in `crates/worker/tests/e2e.rs` behind an `e2e` feature. Docker Compose runs Postgres and LocalStack. The test starts the API router and both worker roles in one process, with the fixture scraper, the fake classifier, and the fake embedder. A fixture of 5 tweets and `BATCH_SIZE=2` give 3 batches. The test polls `GET /queries/{id}` until the status is `done`.
+- [x] **2.9** You add the `e2e` job to `ci.yml`. The test sits in `crates/worker/tests/e2e.rs` behind an `e2e` feature. Docker Compose runs Postgres and LocalStack. The test starts the API router and both worker roles in one process, with the fixture scraper and the fake classifier. A fixture of 5 tweets and `BATCH_SIZE=2` give 3 batches. The test polls `GET /queries/{id}` until the status is `done`.
 - [x] **2.10** You add `nightly.yml` with a contract test against the hosted backend. It reads `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from GitHub secrets. It sends one fixed model input and asserts one bot probability from 0 to 1. A failure fails the workflow, and GitHub emails you.
 - [ ] **2.11** You write `scripts/smoke.sh`. It sends one real query through twitterapi.io and the hosted backend on your machine. It passes when the status is `done`, the result holds at least 10 tweets, and every tweet has a prediction.
 
-**Docs:** a `README.md` for `scraper`, `metadata`, `classifier`, `embedder`, `worker`. The `metadata` README defines `v1` field by field. You write `docs/reports/smoke-m2.md` with the query text, the tweet count, the batch count, and the run time.
+**Docs:** a `README.md` for `scraper`, `metadata`, `classifier`, `worker`. The `metadata` README defines `v1` field by field. You write `docs/reports/smoke-m2.md` with the query text, the tweet count, the batch count, and the run time.
 
 **Gate**
 
@@ -469,7 +465,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 - [ ] A test leaves a job in the dead-letter queue without a `failed` status. The dead-letter queue reader sets the status to `failed`.
 - [ ] A test with zero scraped tweets ends with status `done`.
 - [ ] `scripts/smoke.sh` completes one real query. The smoke report records it.
-- [ ] Decision records settle O1 and O2.
+- [x] A decision record settles O1. O2 moves to M8 with the embeddings.
 
 ---
 
@@ -633,7 +629,7 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
 You plan each of these when M7 closes. Each becomes its own spike and decision record.
 
 - **Sharding experiment.** Use Citus or Aurora Limitless if M5 shows one Postgres instance limits throughput. Measure the change with the M5 scenarios.
-- **Semantic search.** `GET /search` finds tweets by meaning with pgvector and an HNSW index.
+- **Embeddings.** An embedder turns tweet text into embeddings, and Postgres stores them with pgvector. Two uses: near-duplicate tweets across accounts, a sign of coordinated bots, and `GET /search`, which finds tweets by meaning with an HNSW index. Settle O2 first. M2 built a Workers AI embedder on `bge-small-en-v1.5` (384 dimensions) and removed it, because nothing read the embeddings. Git history keeps that code.
 - **Time-series analysis.** Bot and human activity for one topic over time.
 - **Query decomposition.** An LLM splits one query into several scraper jobs and merges their tweets.
 

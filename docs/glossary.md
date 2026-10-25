@@ -35,7 +35,7 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | bot threshold | noun | The bot probability at or above which the API reports an account as a bot. Field name: `is_bot`. | cutoff |
 | prediction | noun | The stored output for one model input: bot probability, model version, metadata version, question version. | decision, score, classification |
 | result | noun | What the API returns for a query whose status is `done`: tweets, accounts, and predictions. | response, output |
-| embedding | noun | A vector of numbers that captures the meaning of tweet text. Postgres stores it with pgvector. | vector, encoding |
+| embedding | noun | A vector of numbers that captures the meaning of tweet text. Only the M8 experiments use embeddings. | vector, encoding |
 | label | noun | The known truth for one eval set item: `bot` or `human`. Never a verb. | ground truth, tag |
 
 ## Components
@@ -48,14 +48,13 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | scraper | noun | The worker part that fetches tweets and accounts from X. Code: `trait Scraper`. | crawler, fetcher |
 | twitterapi.io | noun | The hosted X data API that the scraper calls to search X. Key: `TWITTERAPI_KEY`. | Twitter API, X API |
 | classifier | noun | The worker part that sends batches to an inference backend and returns predictions. Code: `trait Classifier`. | detector, model client |
-| embedder | noun | The worker part that turns tweet text into embeddings. Code: `trait Embedder`. | encoder |
 | inference backend | noun | Any system that runs Clef-flash for the classifier. Kinds: hosted backend, self-hosted backend, fake. | provider, model server |
 | hosted backend | noun | Clef-flash running on Cloudflare Workers AI. Cloudflare runs the GPUs. | Cloudflare API, managed model |
 | self-hosted backend | noun | Clef-flash running on an inference server on a Real Feel GPU instance. | local model, own model |
 | inference server | noun | An HTTP server on a GPU instance that serves Clef-flash. Kinds: reference server, candle server. | model server, inference service |
 | reference server | noun | The Python inference server in `inference/reference`. It defines correct output. | Python server, oracle |
 | candle server | noun | The Rust inference server in `crates/inference`. It uses the `candle` library. | Rust server |
-| Postgres | noun | The single database. It stores queries, tweets, accounts, predictions, and embeddings. On AWS, Postgres runs on RDS. | DB, the database |
+| Postgres | noun | The single database. It stores queries, tweets, accounts, and predictions. On AWS, Postgres runs on RDS. | DB, the database |
 | queue | noun | One SQS queue. Never a verb. Queues: `scraper-jobs`, `classifier-jobs`, and one dead-letter queue for each. | topic, stream |
 | job | noun | The content of one SQS message. Kinds: scraper job, classifier job. | task, event, message |
 | scraper job | noun | A job that tells a scraper worker to fetch tweets for one query. | scrape job, crawl job |
@@ -88,7 +87,6 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | Clef | noun | Cloudflare's 27B decision model. Real Feel does not use it. | — |
 | variant | noun | One numeric precision of Clef-flash's weights. Variants: `bf16`, `int8`, `int4`. | build, quant, version |
 | model version | noun | An identifier for one inference backend running one variant. Examples: `clef-flash-hosted`, `clef-flash-int8-reference`, `clef-flash-int8-candle`. | model id, checkpoint |
-| embedding model | noun | The model that the embedder calls. | encoder |
 
 ## Quality and process
 
