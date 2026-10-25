@@ -12,7 +12,7 @@ See [glossary.md](../../docs/glossary.md): API, query, query status, query reuse
 
 ## How it works
 
-1. `main` calls `telemetry::init()`. It then reads the configuration, connects to Postgres, and binds `API_ADDR`.
+1. `main` calls `telemetry::init()`. It then reads the configuration and connects to Postgres. It runs `db::MIGRATOR`, and then binds `API_ADDR`. `db::MIGRATOR` skips migrations that Postgres already holds, so a restart changes nothing.
 2. `POST /queries` trims the text and checks its length. It checks for query reuse. On a match, it returns the earlier query's ID and sends no scraper job. Otherwise it inserts a `queued` query and sends a scraper job. The job carries the trace context of the request.
 3. `GET /queries/{id}` returns the query status. When the status is `done`, it also returns one page of the result.
 4. The page holds one prediction for each tweet. The API selects it with `DEFAULT_MODEL_VERSION`, `DEFAULT_METADATA_VERSION`, and `DEFAULT_QUESTION_VERSION`. A tweet without a matching prediction has `"p_bot": null`.
@@ -180,7 +180,7 @@ Content-Type: application/json
 
 ## Run it
 
-From the repository root. Postgres and LocalStack must run, and the database must hold the migrations of `db`.
+From the repository root. Postgres and LocalStack must run. The API applies the migrations of `db` at startup.
 
 ```bash
 export DATABASE_URL=postgres://realfeel:$POSTGRES_PASSWORD@localhost:5433/realfeel
@@ -208,6 +208,7 @@ cargo test -p api --features integration
 ## Failure modes
 
 - A configuration variable is missing: the API exits and names the variable.
+- A migration fails, or Postgres is down at startup: the API exits with the error before it binds the port. You read the error, fix the database, and start the API again.
 - `API_ADDR` is invalid or already in use: the API exits with the error. You free the port or set another `API_ADDR`.
 - Postgres is down: `GET /health` still returns `200`, `GET /ready` returns `503`, and the query endpoints return `500` with `internal`.
 - SQS is down: `GET /ready` returns `503`. `POST /queries` returns `503` with `queue_unavailable` and sets the query status to `failed`.
