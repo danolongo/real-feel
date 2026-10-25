@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into predictions\n            (tweet_id, model_version, metadata_version, question_version, p_bot, raw)\n        values ($1, $2, $3, $4, $5, $6)\n        on conflict (tweet_id, model_version, metadata_version, question_version) do update\n        set p_bot = excluded.p_bot, raw = excluded.raw\n        where (predictions.p_bot, predictions.raw) is distinct from (excluded.p_bot, excluded.raw)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Float8",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b62aa316adbe02004ac15fdcc27b899c0a2da0dd99f8b76670c950baef965860"
+}
