@@ -44,6 +44,7 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 |------|----------------|------------|------------|
 | API | noun | The Rust HTTP server in `crates/api`. It accepts queries and returns results. | backend, server, service |
 | worker | noun | A Rust process in `crates/worker`. It takes jobs from SQS. It runs one role: `scraper` or `classifier`. | consumer, processor |
+| role | noun | The kind of job one worker takes: `scraper` or `classifier`. You pick it with `worker --role`. | mode, type |
 | scraper | noun | The worker part that fetches tweets and accounts from X. Code: `trait Scraper`. | crawler, fetcher |
 | Firecrawl | noun | The self-hosted web scraping tool that the scraper calls to search X. Address: `FIRECRAWL_URL`. | crawler |
 | classifier | noun | The worker part that sends batches to an inference backend and returns predictions. Code: `trait Classifier`. | detector, model client |
@@ -61,6 +62,7 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | classifier job | noun | A job that tells a classifier worker to classify one batch of tweets. | classify job |
 | dead-letter queue | noun | The queue that receives a job after the job fails too many times. Short form: DLQ. | error queue |
 | visibility timeout | noun | The time SQS hides a received job from other workers. After it ends, SQS delivers the job again. | lock time |
+| DLQ reader | noun | The loop in each worker role that takes jobs from that role's dead-letter queue, sets each job's query status to `failed`, and deletes the job. | DLQ consumer |
 | job deadline | noun | The time a worker gives one job before it abandons the job. `JOB_DEADLINE_SECS` sets it. | time limit |
 | batch number | noun | The position of one batch in its query, counted from 0. Field name: `batch_number`. | batch index, batch ID |
 | batch count | noun | How many batches a query has. The scraper worker records it once. Field name: `batch_count`. | batch total |
