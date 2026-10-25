@@ -14,7 +14,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  VALE_VERSION: 3.25.1
 
 jobs:
   rust:
@@ -81,15 +80,6 @@ jobs:
         with:
           args: --no-progress --config .lychee.toml '**/*.md'
           fail: true
-      - name: Install Vale
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download "v${VALE_VERSION}" --repo errata-ai/vale \
-            --pattern "vale_${VALE_VERSION}_Linux_64-bit.tar.gz" --dir "$RUNNER_TEMP"
-          tar -xzf "$RUNNER_TEMP/vale_${VALE_VERSION}_Linux_64-bit.tar.gz" -C "$RUNNER_TEMP" vale
-          sudo mv "$RUNNER_TEMP/vale" /usr/local/bin/vale
-      - run: vale README.md docs crates .github
 
   commits:
     if: github.event_name == 'pull_request'

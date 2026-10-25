@@ -101,8 +101,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 markdownlint-cli2 "**/*.md"
 lychee --config .lychee.toml "**/*.md"
-vale README.md docs crates .github
 scripts/check-commits.sh origin/main..HEAD
 ```
 
-The last four commands need `markdownlint-cli2`, `lychee`, and `vale` on your machine.
+The markdown and link checks need `markdownlint-cli2` and `lychee` on your machine.

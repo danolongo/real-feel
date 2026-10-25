@@ -232,7 +232,7 @@ GitHub Actions runs every workflow.
 ### `ci.yml` jobs
 
 - **rust**: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` for unit tests. `SQLX_OFFLINE=true` lets the `sqlx` macros compile from `.sqlx/` with no database. `Swatinem/rust-cache` caches builds.
-- **docs**: `markdownlint`, `lychee` for links, Vale for the writing rules.
+- **docs**: `markdownlint`, `lychee` for links. Claude checks the writing rules itself, so no linter runs them.
 - **commits** (PRs only): `scripts/check-commits.sh` checks the PR title and every commit against the commit format. It rejects any `Co-authored-by` line.
 - **integration** (from M1): after checkout, CI runs `docker compose up -d --wait` to start Postgres (pgvector) and LocalStack. CI runs `cargo sqlx prepare --workspace --check`, which fails when `.sqlx/` is stale. CI then runs `cargo test --workspace --features integration`. Integration tests sit behind the `integration` Cargo feature, so the `rust` job never runs them. Each test creates its own queues with unique names and deletes them at the end, so parallel tests never read each other's jobs.
 - **e2e** (from M2): Docker Compose runs the whole stack with the fixture scraper, the fake classifier, and the fake embedder. The test sends a query and polls until the status is `done`.
@@ -303,7 +303,7 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
 - [x] **0.7** You remove `Cargo.lock` from `.gitignore` and commit the lock file. You remove the SAM and Lambda entries from `.gitignore`.
 - [x] **0.8** You add `rust-toolchain.toml` to pin the Rust version.
 - [x] **0.9** You write `ci.yml` with the `rust` and `docs` jobs.
-- [x] **0.10** You add the Vale configuration: passive voice, sentence length, and a substitution list from the glossary's "Do not use" column.
+- [x] **0.10** You add the Vale configuration: passive voice, sentence length, and a substitution list from the glossary's "Do not use" column. M1 removed Vale. Claude now checks the writing rules itself.
 - [x] **0.11** You write `docs/local-dev.md` and a decision record for each row in [Decisions](#decisions). The records stay on your machine: git ignores `docs/decisions/`.
 - [x] **0.12** You rewrite `README.md` for the new architecture. `.claude/CLAUDE.md` stays local: git ignores `.claude/`.
 - [ ] **0.13** You start the tasks that wait on other companies:
@@ -321,7 +321,7 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
 - [x] CI passes on `main`.
 - [x] `docker compose up` starts only Postgres and LocalStack. LocalStack lists four queues.
 - [x] `cargo run -p api` serves `GET /health` with status `200`.
-- [x] Vale passes on every file in `docs/`.
+- [x] Vale passes on every file in `docs/`. M1 removed Vale.
 - [x] Every row in [Decisions](#decisions) has a decision record with status `accepted`.
 
 ---
@@ -371,8 +371,9 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
   | `query_not_found` | 404 | No query has that ID. |
   | `queue_unavailable` | 503 | SQS rejected the scraper job. |
   | `internal` | 500 | Any other failure. The message hides internal detail. |
+
 - [ ] **1.9** You add the `integration` job to `ci.yml`. You add `SQLX_OFFLINE=true` to the `rust` job. See [`ci.yml` jobs](#ciyml-jobs).
-- [ ] **1.10** You add the new terms to the glossary and to `.vale/styles/RealFeel/Glossary.yml`. The terms: upsert, repository function, receive count, trace context, page, cursor, liveness check, readiness check, error code.
+- [ ] **1.10** You add the new terms to the glossary. The terms: upsert, repository function, receive count, trace context, page, cursor, liveness check, readiness check, error code.
 
 #### Status changes
 

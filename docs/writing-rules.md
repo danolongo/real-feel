@@ -19,8 +19,6 @@ Three rules:
 - Repeat the noun when a pronoun could point to two things.
 - Outside the glossary, pick one sense for a common word and keep that sense in the whole document.
 
-<!-- vale off -->
-
 | Bad | Good | Why |
 |-----|------|-----|
 | The crawler sends the request to Kafka. | The scraper sends the job to the `classifier-jobs` queue. | "crawler", "request" and "Kafka" are not Real Feel terms. |
@@ -29,15 +27,12 @@ Three rules:
 | The model returns a score. | Clef-flash returns a bot probability. | "score" is banned. "the model" is ambiguous. |
 | It retries until it fails. | The worker retries the job until the job reaches the DLQ. | "it" pointed to two things. |
 
-<!-- vale on -->
-
 ## Rule 2: Name the actor
 
 Make the actor the subject of the sentence. The reader must always know who or what acts.
 
 - In instructions, the actor is "you".
 - In system descriptions, the actor is a component from the glossary: the API, the worker, the scraper, the classifier, CI, Postgres, SQS.
-<!-- vale off -->
 
 - Avoid "is done", "gets sent", "will be stored". Name who does it.
 
@@ -47,8 +42,6 @@ Make the actor the subject of the sentence. The reader must always know who or w
 | Migrations should be run first. | You run `cargo sqlx migrate run` first. |
 | Tests are triggered on push. | CI runs the tests on every push to `main`. |
 | The status gets updated. | The classifier worker sets the query status to `done`. |
-
-<!-- vale on -->
 
 ## Rule 3: Short sentences
 
@@ -60,11 +53,7 @@ Make the actor the subject of the sentence. The reader must always know who or w
 
 | Bad | Good |
 |-----|------|
-<!-- vale off -->
-
 | In order to make sure that the worker doesn't end up processing the same job twice, which could happen because SQS delivers at least once, we basically use upserts. | SQS can deliver a job twice. The worker writes with upserts. A second delivery changes nothing. |
-
-<!-- vale on -->
 
 ## Commit messages
 
@@ -163,5 +152,4 @@ Date: YYYY-MM-DD
 ## Enforcement
 
 - The PR template lists all three rules as checkboxes. The reviewer checks them.
-- CI runs Vale on every Markdown file. Vale flags passive voice, long sentences, and words from the "Do not use" column of the glossary.
-- When the glossary changes, you update the Vale substitution list in the same PR.
+- Claude checks every text it writes against these rules before it commits. No linter checks them.
