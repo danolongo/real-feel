@@ -46,7 +46,7 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | worker | noun | A Rust process in `crates/worker`. It takes jobs from SQS. It runs one role: `scraper` or `classifier`. | consumer, processor |
 | role | noun | The kind of job one worker takes: `scraper` or `classifier`. You pick it with `worker --role`. | mode, type |
 | scraper | noun | The worker part that fetches tweets and accounts from X. Code: `trait Scraper`. | crawler, fetcher |
-| Firecrawl | noun | The self-hosted web scraping tool that the scraper calls to search X. Address: `FIRECRAWL_URL`. | crawler |
+| twitterapi.io | noun | The hosted X data API that the scraper calls to search X. Key: `TWITTERAPI_KEY`. | Twitter API, X API |
 | classifier | noun | The worker part that sends batches to an inference backend and returns predictions. Code: `trait Classifier`. | detector, model client |
 | embedder | noun | The worker part that turns tweet text into embeddings. Code: `trait Embedder`. | encoder |
 | inference backend | noun | Any system that runs Clef-flash for the classifier. Kinds: hosted backend, self-hosted backend, fake. | provider, model server |

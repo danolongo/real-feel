@@ -41,7 +41,7 @@ User ──HTTP──▶ API (Rust, axum, EC2) ──────────▶
                   │                                   │
                   ▼                                   │
         worker, role: scraper ────────────────────────┤
-          └─ scraper ──▶ Firecrawl ──▶ X              │
+          └─ scraper ──▶ twitterapi.io ──▶ X          │
                   │                                   │
                   │ classifier jobs (one per batch)   │
                   ▼                                   │
@@ -67,7 +67,7 @@ Datadog watches every component. OpenTelemetry carries the traces.
 3. The API sends a scraper job to the `scraper-jobs` queue. The job carries the trace context.
 4. The API returns `202` and the query ID.
 5. A scraper worker takes the scraper job. It sets the query status to `scraping`.
-6. The scraper fetches tweets and accounts through Firecrawl.
+6. The scraper fetches tweets and their accounts through twitterapi.io.
 7. The scraper worker upserts the tweets and accounts into Postgres.
 8. The scraper worker sorts the query's tweets by tweet ID. It splits them into batches of `BATCH_SIZE` and numbers them from 0. In one `UPDATE`, it records the batch count and sets the query status to `classifying`. If the scraper found no tweets, the scraper worker sets the status to `done` instead.
 9. The scraper worker sends one classifier job for each batch. A classifier job carries tweet IDs, never tweet text.
@@ -103,7 +103,7 @@ Each row becomes a decision record in M0. "Agreed" rows come from the design dis
 
 | # | Decision | Reason | Status |
 |---|----------|--------|--------|
-| D1 | The scraper uses Firecrawl. You host Firecrawl yourself. The scraper hides Firecrawl behind `trait Scraper`. | Writing an X scraper is a project of its own. The plan puts the effort into the system. Self-hosting needs no paid plan. The trait lets you swap tools. | Agreed |
+| D1 | The scraper uses twitterapi.io, a hosted X data API. The scraper hides it behind `trait Scraper`. | Writing an X scraper is a project of its own. Spike 2.1 showed that X blocks self-hosted Firecrawl. twitterapi.io returns tweets with their authors' metadata for about $0.15 per 1,000 tweets. The trait lets you swap sources. | Agreed (changed in M2) |
 | D2 | Clef-flash classifies tweets. Clef is not used. | Clef-flash costs less for each input token and fits one cheap GPU. If the eval set shows it is not accurate enough, you revisit this decision. | Agreed |
 | D3 | Metadata versions and question versions are first-class. Every prediction stores them. | Metadata decides accuracy as much as the model does. You must compare versions with evidence. | Agreed |
 | D4 | SQS replaces Kafka. | Real Feel needs jobs that run later and retry. It does not need replay, many consumers, or high-volume streams. SQS needs no servers. | Agreed |
@@ -127,7 +127,7 @@ You make each decision before its deadline. Each decision ends in a decision rec
 
 | # | Question | Options | Deadline |
 |---|----------|---------|----------|
-| O1 | Can self-hosted Firecrawl fetch X search pages, profiles, and tweets? | Self-hosted Firecrawl; Apify actors; a third-party X data API | M2, task 2.1 |
+| O1 | Can self-hosted Firecrawl fetch X search pages, profiles, and tweets? | Self-hosted Firecrawl; Apify actors; a third-party X data API | Settled in task 2.1: no. The scraper uses twitterapi.io. |
 | O2 | Which embedding model, and how many dimensions? | A Workers AI embedding model; a small embedding model that runs inside the worker | M2, task 2.5 |
 | O3 | Which eval set? | Accounts you hand-label from scraped tweets; Cresci-2017; both | M4, task 4.1 |
 | O4 | Which bot threshold? | 0.5 by default; tuned from the eval report | M4, task 4.7 |
@@ -150,7 +150,7 @@ real-feel/
 │   ├── telemetry/             # tracing, OpenTelemetry, and trace context, shared by all binaries
 │   ├── db/                    # sqlx pool, migrations, repository functions
 │   ├── queue/                 # SQS send, receive, delete for typed jobs
-│   ├── scraper/               # trait Scraper; Firecrawl and fixture implementations
+│   ├── scraper/               # trait Scraper; twitterapi.io and fixture implementations
 │   ├── metadata/              # builds model inputs for each metadata version and question version
 │   ├── classifier/            # trait Classifier; hosted, self-hosted, and fake implementations
 │   ├── embedder/              # trait Embedder; hosted and fake implementations
@@ -350,7 +350,7 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
   - `query_batches`: `query_id`, `batch_number`, `finished_at`. Primary key: the first two columns.
   - `predictions`: `tweet_id`, `model_version`, `metadata_version`, `question_version`, `p_bot`, `raw` (`jsonb`), `created_at`. Primary key: the first four columns.
 
-  `accounts` and `tweets` stay minimal on purpose. `raw` holds every field the scraper returns. Task 2.2 adds columns once spike 2.1 shows what Firecrawl returns. IDs are `text` because the spike may show that a page exposes only the handle. Task 2.5 adds the `embedding` column, because pgvector needs a fixed dimension and O2 sets it.
+  `accounts` and `tweets` stay minimal on purpose. `raw` holds every field the scraper returns. Task 2.2 adds columns once spike 2.1 shows what the X data source returns. IDs are `text` because the spike may show that a page exposes only the handle. Task 2.5 adds the `embedding` column, because pgvector needs a fixed dimension and O2 sets it.
 - [x] **1.3** `crates/db`: You write the repository functions. They are the only code that runs SQL.
   - Each worker write upserts with `ON CONFLICT … DO UPDATE … WHERE (columns) IS DISTINCT FROM (excluded columns)`. A second call with the same input changes no row. `updated_at` changes only when content changes.
   - `POST /queries` inserts. Each query gets a new ID, so this write is never an upsert.
@@ -425,8 +425,10 @@ Postgres applies a status change only from the statuses this table allows. Any o
 
 | Variable | Default | Read by |
 |----------|---------|---------|
-| `SCRAPER` | `firecrawl` | worker: `firecrawl` or `fixture` |
-| `FIRECRAWL_URL` | `http://localhost:3002` | scraper |
+| `SCRAPER` | `twitterapi` | worker: `twitterapi` or `fixture` |
+| `TWITTERAPI_KEY` | none | scraper |
+| `TWITTERAPI_PAGES` | `5` | scraper: the most search pages for each query, 20 tweets each |
+| `TWITTERAPI_INTERVAL_SECS` | `5` | scraper: the pause between two requests. The free tier allows one request every 5 seconds. |
 | `FIXTURE_PATH` | `crates/scraper/fixtures/default.json` | worker, with `SCRAPER=fixture` |
 | `CLASSIFIER` | `hosted` | worker: `hosted` or `fake` |
 | `EMBEDDER` | `hosted` | worker: `hosted` or `fake` |
@@ -440,8 +442,8 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 
 **Tasks**
 
-- [ ] **2.1** **Spike:** You test self-hosted Firecrawl against an X search page, a profile page, and a tweet page. You record which fields come back. You write `docs/reports/spike-firecrawl-x.md` and a decision record that settles O1. You add the Firecrawl setup to `docs/local-dev.md`. If self-hosted Firecrawl cannot fetch X, you pick another O1 option before 2.2 starts. The fixture scraper keeps the e2e gate independent of that choice.
-- [ ] **2.2** `crates/scraper`: You define `trait Scraper`. You write the Firecrawl implementation and a fixture implementation. The fixture implementation reads JSON files from `crates/scraper/fixtures/`. You add migrations for the `accounts` and `tweets` columns that spike 2.1 confirms, and you settle what `id` holds.
+- [x] **2.1** **Spike:** You test self-hosted Firecrawl against an X search page, a profile page, and a tweet page. X blocks all three, so you test twitterapi.io with `scripts/spike-twitterapi.sh`. You record which fields come back. You write `docs/reports/spike-x-data.md` and a decision record that settles O1.
+- [ ] **2.2** `crates/scraper`: You define `trait Scraper`. You write the twitterapi.io implementation and a fixture implementation. The fixture implementation reads JSON files from `crates/scraper/fixtures/`. You add migrations for the `accounts` columns that spike 2.1 confirms. A tweet ID and an account ID hold X's numeric IDs as text.
 - [x] **2.3** `crates/metadata`: You define `ModelInput` in `crates/types`. You write metadata version `v1` (tweet text only) and question version `v1` (bot or human). The functions are pure: the same tweet and account always give the same model input.
 - [x] **2.4** `crates/classifier`: You define `trait Classifier`. You write the hosted implementation and the fake. The hosted implementation:
   - reads Cloudflare's request format for Clef-flash and records it in the crate README
@@ -453,7 +455,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 - [x] **2.8** `crates/worker`: You add the [failure flow](#failure-flow), the job deadline, and the dead-letter queue reader. A fake classifier that fails N times proves the retry and the DLQ. The tests create their own queues with a 1-second visibility timeout and `maxReceiveCount` 5.
 - [x] **2.9** You add the `e2e` job to `ci.yml`. The test sits in `crates/worker/tests/e2e.rs` behind an `e2e` feature. Docker Compose runs Postgres and LocalStack. The test starts the API router and both worker roles in one process, with the fixture scraper, the fake classifier, and the fake embedder. A fixture of 5 tweets and `BATCH_SIZE=2` give 3 batches. The test polls `GET /queries/{id}` until the status is `done`.
 - [x] **2.10** You add `nightly.yml` with a contract test against the hosted backend. It reads `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from GitHub secrets. It sends one fixed model input and asserts one bot probability from 0 to 1. A failure fails the workflow, and GitHub emails you.
-- [ ] **2.11** You write `scripts/smoke.sh`. It sends one real query through Firecrawl and the hosted backend on your machine. It passes when the status is `done`, the result holds at least 10 tweets, and every tweet has a prediction.
+- [ ] **2.11** You write `scripts/smoke.sh`. It sends one real query through twitterapi.io and the hosted backend on your machine. It passes when the status is `done`, the result holds at least 10 tweets, and every tweet has a prediction.
 
 **Docs:** a `README.md` for `scraper`, `metadata`, `classifier`, `embedder`, `worker`. The `metadata` README defines `v1` field by field. You write `docs/reports/smoke-m2.md` with the query text, the tweet count, the batch count, and the run time.
 
@@ -482,7 +484,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 - [ ] **3.3** `database`: You create RDS Postgres 16 with the `vector` extension, on the smallest instance class that runs it.
 - [ ] **3.4** `queues`: You create `scraper-jobs`, `classifier-jobs`, and their DLQs, with `maxReceiveCount = 5`.
 - [ ] **3.5** `registry`: You create ECR repositories. You write multi-stage Dockerfiles for `api` and `worker`.
-- [ ] **3.6** `compute`: You create one EC2 instance for the API and one for the workers. Both use instance profiles. SSM Parameter Store holds the secrets. You also deploy self-hosted Firecrawl. The spike in task 2.1 shows how much memory it needs.
+- [ ] **3.6** `compute`: You create one EC2 instance for the API and one for the workers. Both use instance profiles. SSM Parameter Store holds the secrets.
 - [ ] **3.7** `iam`: You create an OIDC role for GitHub Actions. The role can push to ECR and send SSM commands. It cannot do anything else.
 - [ ] **3.8** You write `deploy.yml`. It builds the images, pushes them to ECR, and tells each instance to pull and restart through SSM Run Command.
 - [ ] **3.9** You install the Datadog agent on both instances. The agent receives OpenTelemetry traces and JSON logs. You build a first dashboard: request rate, error rate, queue depth, query time from `queued` to `done`.
@@ -519,7 +521,7 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
 - [ ] **4.5** `crates/eval`: You build the `eval` binary. `eval experiment --model-version … --metadata-version … --question-version …` runs one experiment. The binary prints the expected cost before it calls a paid backend, and asks you to confirm.
 - [ ] **4.6** `crates/eval`: The binary computes accuracy, precision, recall, F1, ROC-AUC, Brier score, and expected calibration error. Postgres stores every experiment. `eval report` writes an eval report that compares experiments.
 - [ ] **4.7** You settle O4 from the eval report. You record the chosen bot threshold in a decision record. The API adds `is_bot` to the result.
-- [ ] **4.8** You compare each metadata version's fields against the fields Firecrawl returns. You list the gaps in the eval report.
+- [ ] **4.8** You compare each metadata version's fields against the fields twitterapi.io returns. You list the gaps in the eval report.
 - [ ] **4.9** CI runs one experiment on a ten-item fixture eval set with the fake classifier.
 
 **Docs:** `crates/eval/README.md`, `docs/reports/eval-m4.md`, decision records for O3 and O4 and the default metadata version.
@@ -546,7 +548,7 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
   - `soak`: a steady rate for one hour
 - [ ] **5.2** You run each scenario in two modes:
   - **System only:** fake scraper and fake classifier. The test measures Real Feel's own code.
-  - **Full:** real Firecrawl and the hosted backend. The test measures the whole chain. It costs real money, so run it at a small scale.
+  - **Full:** real twitterapi.io and the hosted backend. The test measures the whole chain. It costs real money, so run it at a small scale.
 - [ ] **5.3** You record the baseline break points on one API instance. You write `docs/reports/load-baseline.md`.
 - [ ] **5.4** You add an ALB and an Auto Scaling Group for the API. The ALB checks `GET /health`. ACM provides the HTTPS certificate.
 - [ ] **5.5** You give each worker role its own Auto Scaling Group. Each group scales on its queue's backlog per instance.
@@ -641,8 +643,8 @@ You plan each of these when M7 closes. Each becomes its own spike and decision r
 
 | Risk | Effect | What you do |
 |------|--------|-------------|
-| Self-hosted Firecrawl cannot fetch X pages | M2 stalls | Self-hosted Firecrawl lacks the managed anti-bot layer. Task 2.1 checks this first. `trait Scraper` lets you swap tools. |
-| Firecrawl does not return the metadata that `v2`+ need | M4 compares versions that production cannot fill | Task 4.8 lists the gaps. The eval set has the fields even if live data does not. |
+| twitterapi.io changes its API, raises prices, or shuts down | The scraper stops | `trait Scraper` lets you swap to another X data API. Spike 2.1 lists the alternatives. |
+| twitterapi.io does not return the metadata that `v2`+ need | M4 compares versions that production cannot fill | Task 4.8 lists the gaps. The eval set has the fields even if live data does not. |
 | Cloudflare does not publish the Clef-flash weights | M6 and M7 stop | Task 6.1 checks the licence before you build anything. |
 | Clef-flash's schema head needs custom code | M6 takes longer | Task 6.1 answers this before you build anything. |
 | `candle` lacks Clef-flash's base architecture | M7 grows large | Task 7.1 can stop M7 with a decision record. |
