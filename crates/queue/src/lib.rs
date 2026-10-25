@@ -127,6 +127,17 @@ impl Queue {
             .collect()
     }
 
+    /// Succeeds when SQS answers for this queue.
+    pub async fn ping(&self) -> Result<(), Error> {
+        self.client
+            .get_queue_attributes()
+            .queue_url(&self.url)
+            .send()
+            .await
+            .map_err(|error| Error::Sqs(Box::new(error.into())))?;
+        Ok(())
+    }
+
     pub async fn delete(&self, receipt_handle: &str) -> Result<(), Error> {
         self.client
             .delete_message()

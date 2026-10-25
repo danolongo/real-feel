@@ -1,19 +1,188 @@
 # api
 
-The API is the Rust HTTP server that accepts queries and returns results. Today it serves only `GET /health`, which answers `200` with an empty body. M1 adds the query endpoints and the calls to Postgres and SQS.
+The API is the Rust HTTP server that accepts queries and returns results. It calls Postgres through [`db`](../db/README.md) and sends scraper jobs through [`queue`](../queue/README.md). It runs no SQL and makes no SQS call itself.
+
+## Where it sits
+
+The user sends queries to the API. The API inserts each query into Postgres and sends a scraper job to the `scraper-jobs` queue. The scraper worker and the classifier worker do the rest. The user polls the API for the result.
+
+## Terms
+
+See [glossary.md](../../docs/glossary.md): API, query, query status, tweet, account, prediction, bot probability, result, page, cursor, scraper job, trace context, liveness check, readiness check, error code.
+
+## How it works
+
+1. `main` calls `telemetry::init()`. It then reads the configuration, connects to Postgres, and binds `API_ADDR`.
+2. `POST /queries` trims the text and checks its length. It inserts a `queued` query and sends a scraper job. The job carries the trace context of the request.
+3. `GET /queries/{id}` returns the query status. When the status is `done`, it also returns one page of the result.
+4. The page holds one prediction for each tweet. The API selects it with `DEFAULT_MODEL_VERSION`, `DEFAULT_METADATA_VERSION`, and `DEFAULT_QUESTION_VERSION`. A tweet without a matching prediction has `"p_bot": null`.
+5. The page carries `p_bot` only. It has no `is_bot` field.
+6. Every error is JSON: `{ "code": …, "message": … }`.
+
+### `POST /queries`
+
+The text must hold 1 to 512 characters after trimming. The API stores the trimmed text.
+
+```http
+POST /queries HTTP/1.1
+Content-Type: application/json
+
+{ "text": "what are people saying about the new phone?" }
+```
+
+```http
+HTTP/1.1 202 Accepted
+Content-Type: application/json
+
+{ "query_id": "7b0e5c3e-52b4-4a58-8f0c-9d5a1f2a6c11" }
+```
+
+If the API cannot send the scraper job, it sets the query status to `failed`, records the error, and returns `503` with `queue_unavailable`.
+
+### `GET /queries/{id}`
+
+Query parameters:
+
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `limit` | `50` | The number of tweets in the page. From 1 to 200. |
+| `after` | none | The cursor: the last `tweet_id` of the previous page. It must not be empty. |
+
+The API sorts tweets by `tweet_id`. `next_cursor` is `null` on the last page. Until the status is `done`, `result` is `null`.
+
+```http
+GET /queries/7b0e5c3e-52b4-4a58-8f0c-9d5a1f2a6c11 HTTP/1.1
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "query_id": "7b0e5c3e-52b4-4a58-8f0c-9d5a1f2a6c11",
+  "status": "queued",
+  "error": null,
+  "result": null
+}
+```
+
+A `done` query with `limit=2`:
+
+```http
+GET /queries/7b0e5c3e-52b4-4a58-8f0c-9d5a1f2a6c11?limit=2 HTTP/1.1
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "query_id": "7b0e5c3e-52b4-4a58-8f0c-9d5a1f2a6c11",
+  "status": "done",
+  "error": null,
+  "result": {
+    "tweets": [
+      {
+        "tweet_id": "1801",
+        "text": "The new phone is fine.",
+        "posted_at": "2026-10-01T09:30:00Z",
+        "account": { "id": "42", "handle": "alice" },
+        "p_bot": 0.04
+      },
+      {
+        "tweet_id": "1802",
+        "text": "BUY NOW best phone deal",
+        "posted_at": null,
+        "account": { "id": "77", "handle": "deals_bot_9" },
+        "p_bot": 0.97
+      }
+    ],
+    "next_cursor": "1802"
+  }
+}
+```
+
+A `failed` query returns its error in `error`:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "query_id": "7b0e5c3e-52b4-4a58-8f0c-9d5a1f2a6c11",
+  "status": "failed",
+  "error": "SQS request failed: …",
+  "result": null
+}
+```
+
+### `GET /health`
+
+The liveness check. It returns `200` with an empty body while the process runs. It checks no dependency.
+
+```http
+GET /health HTTP/1.1
+```
+
+```http
+HTTP/1.1 200 OK
+```
+
+### `GET /ready`
+
+The readiness check. It returns `200` when Postgres and SQS respond. It returns `503` with an empty body when either does not.
+
+```http
+GET /ready HTTP/1.1
+```
+
+```http
+HTTP/1.1 503 Service Unavailable
+```
+
+### Error codes
+
+| Code | HTTP status | When |
+|------|-------------|------|
+| `invalid_query` | 400 | The query text is empty, longer than 512 characters after trimming, or missing from the body. |
+| `invalid_query_id` | 400 | The ID in the path is not a UUID. |
+| `invalid_cursor` | 400 | `limit` is not a number from 1 to 200, or `after` is empty. |
+| `query_not_found` | 404 | No query has that ID. |
+| `queue_unavailable` | 503 | SQS rejected the scraper job. |
+| `internal` | 500 | Any other failure. The message hides internal detail. |
+
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{
+  "code": "invalid_query",
+  "message": "the query text must hold 1 to 512 characters after trimming"
+}
+```
 
 ## Configuration
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `API_ADDR` | `0.0.0.0:8080` | The address the API binds. |
-| `RUST_LOG` | `info` | The log filter, in `tracing-subscriber` syntax. |
+| `DATABASE_URL` | none | The Postgres connection string. |
+| `SCRAPER_QUEUE_URL` | none | The URL of the `scraper-jobs` queue. |
+| `DEFAULT_MODEL_VERSION` | none | The model version of the predictions in a result. |
+| `DEFAULT_METADATA_VERSION` | none | The metadata version of the predictions in a result. |
+| `DEFAULT_QUESTION_VERSION` | none | The question version of the predictions in a result. |
+| `RUST_LOG` | `info` | The log filter. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | The OTLP collector URL. Unset turns the exporter off. |
+| `AWS_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | none | The AWS client settings. See [`queue`](../queue/README.md). |
 
 ## Run it
 
-From the repository root:
+From the repository root. Postgres and LocalStack must run, and the database must hold the migrations of `db`.
 
 ```bash
+export DATABASE_URL=postgres://realfeel:$POSTGRES_PASSWORD@localhost:5433/realfeel
+export SCRAPER_QUEUE_URL=http://localhost:4566/000000000000/scraper-jobs
+export DEFAULT_MODEL_VERSION=clef-flash-bf16 DEFAULT_METADATA_VERSION=v1 DEFAULT_QUESTION_VERSION=v1
 cargo run -p api
 ```
 
@@ -25,6 +194,17 @@ From the repository root. The tests need no Docker and no network.
 cargo test -p api
 ```
 
+The integration tests need Postgres and LocalStack from `docker compose up -d --wait`. Each test gets its own database and its own queue with a unique name.
+
+```bash
+AWS_ENDPOINT_URL=http://localhost:4566 AWS_REGION=us-east-1 \
+AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
+cargo test -p api --features integration
+```
+
 ## Failure modes
 
-The API exits with the error when `API_ADDR` is invalid or already in use. You free the port or set another `API_ADDR`.
+- A configuration variable is missing: the API exits and names the variable.
+- `API_ADDR` is invalid or already in use: the API exits with the error. You free the port or set another `API_ADDR`.
+- Postgres is down: `GET /health` still returns `200`, `GET /ready` returns `503`, and the query endpoints return `500` with `internal`.
+- SQS is down: `GET /ready` returns `503`. `POST /queries` returns `503` with `queue_unavailable` and sets the query status to `failed`.
