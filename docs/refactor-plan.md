@@ -640,6 +640,7 @@ You plan each of these when M7 closes. Each becomes its own spike and decision r
 | Risk | Effect | What you do |
 |------|--------|-------------|
 | twitterapi.io changes its API, raises prices, or shuts down | The scraper stops | `trait Scraper` lets you swap to another X data API. Spike 2.1 lists the alternatives. |
+| Several scraper workers share one `TWITTERAPI_KEY` and together pass its rate limit | The scraper gets `429`s and slows down | Each worker retries a `429`. If the M5 load tests show many `429`s, you add a shared rate limiter: one call budget for the key across all scraper workers. |
 | twitterapi.io does not return the metadata that `v2`+ need | M4 compares versions that production cannot fill | Task 4.8 lists the gaps. The eval set has the fields even if live data does not. |
 | Cloudflare does not publish the Clef-flash weights | M6 and M7 stop | Task 6.1 checks the licence before you build anything. |
 | Clef-flash's schema head needs custom code | M6 takes longer | Task 6.1 answers this before you build anything. |
