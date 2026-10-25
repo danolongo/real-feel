@@ -1,6 +1,7 @@
 use std::{collections::HashSet, time::Duration};
 
 use chrono::{DateTime, Utc};
+use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::Value;
 use types::{Account, Tweet};
@@ -9,6 +10,9 @@ use crate::{Error, Scraped, Scraper};
 
 /// The date format of search results, such as `Sun Oct 25 09:56:57 +0000 2026`.
 const DATE_FORMAT: &str = "%a %b %d %H:%M:%S %z %Y";
+
+/// The most requests for one page, counting the first.
+const MAX_ATTEMPTS: u32 = 3;
 
 #[derive(Deserialize)]
 struct SearchPage {
@@ -70,27 +74,34 @@ impl TwitterApi {
         }
     }
 
+    /// Sends the request again after `interval` when twitterapi.io answers `429`.
     async fn fetch_page(&self, query: &str, cursor: &str) -> Result<SearchPage, Error> {
-        Ok(self
-            .client
-            .get(format!(
-                "{}/twitter/tweet/advanced_search",
-                self.base_url.trim_end_matches('/')
-            ))
-            .header("X-API-Key", &self.key)
-            .query(&[
-                (
-                    "query",
-                    format!("{query} lang:en -filter:retweets").as_str(),
-                ),
-                ("queryType", "Latest"),
-                ("cursor", cursor),
-            ])
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?)
+        let mut attempt = 1;
+        loop {
+            let response = self
+                .client
+                .get(format!(
+                    "{}/twitter/tweet/advanced_search",
+                    self.base_url.trim_end_matches('/')
+                ))
+                .header("X-API-Key", &self.key)
+                .query(&[
+                    (
+                        "query",
+                        format!("{query} lang:en -filter:retweets").as_str(),
+                    ),
+                    ("queryType", "Latest"),
+                    ("cursor", cursor),
+                ])
+                .send()
+                .await?;
+            if response.status() == StatusCode::TOO_MANY_REQUESTS && attempt < MAX_ATTEMPTS {
+                attempt += 1;
+                tokio::time::sleep(self.interval).await;
+                continue;
+            }
+            return Ok(response.error_for_status()?.json().await?);
+        }
     }
 }
 
@@ -313,7 +324,38 @@ mod tests {
     async fn fails_on_http_error() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let error = scraper(&server, 1).scrape("q").await.unwrap_err();
+        assert!(matches!(error, Error::Http(_)));
+    }
+
+    #[tokio::test]
+    async fn sends_the_request_again_after_a_429() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
             .respond_with(ResponseTemplate::new(429))
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .respond_with(page(vec![tweet("101", "1")], None))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let scraped = scraper(&server, 1).scrape("q").await.unwrap();
+        assert_eq!(scraped.tweets.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn fails_after_three_attempts_that_answer_429() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(429))
+            .expect(3)
             .mount(&server)
             .await;
         let error = scraper(&server, 1).scrape("q").await.unwrap_err();
