@@ -36,3 +36,6 @@ model/*.onnx.data
 
 # Decision records (local only)
 docs/decisions/
+
+# sqlx offline data (local only; CI compiles against a live Postgres)
+.sqlx/

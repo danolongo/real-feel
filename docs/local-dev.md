@@ -77,21 +77,21 @@ Integration tests need the stack from step 2 and the variables in `.env.example`
 
 CI runs the integration tests of every crate that declares the feature.
 
-## Refresh the sqlx offline data
+## Compile the SQL checks
 
-The `sqlx` macros read `.sqlx/` when `SQLX_OFFLINE=true`. You refresh `.sqlx/` after you change a SQL query. Install `sqlx-cli` once.
+The `sqlx` macros check every SQL query at compile time against the database in `DATABASE_URL`. With the stack down, set `SQLX_OFFLINE=true`, and the macros read your local `.sqlx/` instead. Git ignores `.sqlx/`, so it never leaves your machine. Install `sqlx-cli` once.
 
 ```bash
 cargo install sqlx-cli --version 0.9.0 --locked --no-default-features --features rustls,postgres
 ```
 
-With the stack running and the migrations applied, refresh the data and commit `.sqlx/`.
+With the stack running and the migrations applied, refresh `.sqlx/` after you change a SQL query.
 
 ```bash
 cargo sqlx prepare --workspace
 ```
 
-CI runs `cargo sqlx prepare --workspace --check` and fails when `.sqlx/` is stale.
+CI has no `.sqlx/`. CI starts Postgres, applies the migrations, and compiles against it.
 
 ## Run the CI checks
 

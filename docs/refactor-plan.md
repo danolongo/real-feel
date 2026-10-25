@@ -231,10 +231,10 @@ GitHub Actions runs every workflow.
 
 ### `ci.yml` jobs
 
-- **rust**: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` for unit tests. `SQLX_OFFLINE=true` lets the `sqlx` macros compile from `.sqlx/` with no database. `Swatinem/rust-cache` caches builds.
+- **rust**: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` for unit tests. CI starts Postgres and applies the migrations with `psql`, so the `sqlx` macros check every query against a live schema. `Swatinem/rust-cache` caches builds.
 - **docs**: `markdownlint`, `lychee` for links. Claude checks the writing rules itself, so no linter runs them.
 - **commits** (PRs only): `scripts/check-commits.sh` checks the PR title and every commit against the commit format. It rejects any `Co-authored-by` line.
-- **integration** (from M1): after checkout, CI runs `docker compose up -d --wait` to start Postgres (pgvector) and LocalStack. CI runs `cargo sqlx prepare --workspace --check`, which fails when `.sqlx/` is stale. CI then runs `cargo test --workspace --features integration`. Integration tests sit behind the `integration` Cargo feature, so the `rust` job never runs them. Each test creates its own queues with unique names and deletes them at the end, so parallel tests never read each other's jobs.
+- **integration** (from M1): after checkout, CI runs `docker compose up -d --wait` to start Postgres (pgvector) and LocalStack. CI applies the migrations with `psql`. CI then runs `cargo test --workspace --features integration`. Integration tests sit behind the `integration` Cargo feature, so the `rust` job never runs them. Each test creates its own queues with unique names and deletes them at the end, so parallel tests never read each other's jobs.
 - **e2e** (from M2): Docker Compose runs the whole stack with the fixture scraper, the fake classifier, and the fake embedder. The test sends a query and polls until the status is `done`.
 - **python** (from M6, only when `inference/` changes): `ruff`, `pyright --strict`, `pytest`. A check confirms the generated Python models match the current JSON Schema.
 - **contract** (from M6): the reference server's request and response pass validation against the JSON Schema from `crates/types`.
@@ -349,7 +349,7 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
   - Each worker write upserts with `ON CONFLICT … DO UPDATE … WHERE (columns) IS DISTINCT FROM (excluded columns)`. A second call with the same input changes no row. `updated_at` changes only when content changes.
   - `POST /queries` inserts. Each query gets a new ID, so this write is never an upsert.
   - Each status change is a conditional `UPDATE` from the [Status changes](#status-changes) table. The function returns whether Postgres applied the change.
-  - You commit the `sqlx` offline data in `.sqlx/`.
+  - Git ignores the `sqlx` offline data in `.sqlx/`. It stays on your machine.
 - [ ] **1.4** `crates/queue`: You write typed `send`, `receive`, and `delete` functions over SQS.
   - `receive` asks SQS for the `ApproximateReceiveCount` attribute. It returns the job, the receive count, and the receipt handle.
   - `send` writes the current trace context into the job. `receive` restores it, so a worker's spans join the API's trace.

@@ -14,7 +14,7 @@ See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, 
 
 1. `MIGRATOR` holds the migrations in `migrations/`. You run it once against a database.
 2. Each repository function takes any `sqlx` executor: a pool or a transaction. A worker passes a transaction when several writes must commit together.
-3. `sqlx` checks every SQL string at compile time. With `SQLX_OFFLINE=true`, `sqlx` reads the checked data in `.sqlx/` at the repository root, so the build needs no database.
+3. `sqlx` checks every SQL string at compile time against the database in `DATABASE_URL`. With `SQLX_OFFLINE=true`, `sqlx` reads your local `.sqlx/` instead. Git ignores `.sqlx/`.
 4. `insert_query` creates a `queued` query with a new ID. It is never an upsert.
 5. `set_status` runs one conditional `UPDATE`. It returns `true` when Postgres applied the change and `false` when the current status forbids it. For `failed`, the caller passes the error message.
 6. Each upsert writes with `ON CONFLICT … DO UPDATE … WHERE (columns) IS DISTINCT FROM (excluded columns)`. It returns the number of changed rows. A second call with the same input returns `0`, and `updated_at` stays the same. `upsert_query_tweet` and `upsert_query_batch` use `DO NOTHING`, because no column can change.
@@ -44,7 +44,7 @@ Postgres applies a status change only from the statuses this table allows. Any o
 
 ## Run it
 
-`db` is a library. It has no binary. After you change a SQL string or a migration, update the offline data from the repository root:
+`db` is a library. It has no binary. After you change a SQL string or a migration, apply the migrations and refresh your local `.sqlx/` from the repository root:
 
 ```bash
 export DATABASE_URL=postgres://realfeel:$POSTGRES_PASSWORD@localhost:5433/realfeel
@@ -52,7 +52,7 @@ cargo sqlx migrate run --source crates/db/migrations
 cargo sqlx prepare --workspace
 ```
 
-Commit the changes in `.sqlx/`. CI runs `cargo sqlx prepare --workspace --check` and fails when `.sqlx/` is stale.
+`.sqlx/` stays on your machine. CI compiles against a live Postgres instead.
 
 ## Test it
 
@@ -74,7 +74,7 @@ Each test gets its own database, so tests run in parallel and never collide.
 
 - Postgres is down: each function returns `sqlx::Error`. The caller decides whether to retry.
 - A forbidden status change: `set_status` returns `false` and changes nothing.
-- `.sqlx/` is stale: the build with `SQLX_OFFLINE=true` fails. You run `cargo sqlx prepare --workspace`.
+- Your local `.sqlx/` is stale: the build with `SQLX_OFFLINE=true` fails. You run `cargo sqlx prepare --workspace`.
 
 ## Decisions
 
