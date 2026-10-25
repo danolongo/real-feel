@@ -55,7 +55,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 markdownlint-cli2 "**/*.md"
 lychee --config .lychee.toml "**/*.md"
-vale README.md docs crates .github .claude/CLAUDE.md
+vale README.md docs crates .github
 scripts/check-commits.sh origin/main..HEAD
 ```
 

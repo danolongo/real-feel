@@ -47,7 +47,7 @@ jobs:
             --pattern "vale_${VALE_VERSION}_Linux_64-bit.tar.gz" --dir "$RUNNER_TEMP"
           tar -xzf "$RUNNER_TEMP/vale_${VALE_VERSION}_Linux_64-bit.tar.gz" -C "$RUNNER_TEMP" vale
           sudo mv "$RUNNER_TEMP/vale" /usr/local/bin/vale
-      - run: vale README.md docs crates .github .claude/CLAUDE.md
+      - run: vale README.md docs crates .github
 
   commits:
     if: github.event_name == 'pull_request'

@@ -262,7 +262,6 @@ You write docs as you build. Docs ship in the same PR as the code.
 | `docs/decisions/` | One decision record for each decision. Local only: git ignores the folder. | M0 onward |
 | `docs/reports/` | Spike results, eval reports, benchmarks, load test reports. | M2 onward |
 | `crates/*/README.md` | Onboarding doc for each crate. Template in [writing-rules.md](writing-rules.md#module-docs). | Same PR as the crate |
-| `.claude/CLAUDE.md` | Current milestone and conventions for Claude Code. | Updated each milestone |
 
 ---
 
@@ -303,7 +302,7 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
 - [ ] **0.9** You write `ci.yml` with the `rust` and `docs` jobs.
 - [ ] **0.10** You add the Vale configuration: passive voice, sentence length, and a substitution list from the glossary's "Do not use" column.
 - [ ] **0.11** You write `docs/local-dev.md` and a decision record for each row in [Decisions](#decisions). The records stay on your machine: git ignores `docs/decisions/`.
-- [ ] **0.12** You rewrite `README.md` and `.claude/CLAUDE.md` for the new architecture.
+- [ ] **0.12** You rewrite `README.md` for the new architecture. `.claude/CLAUDE.md` stays local: git ignores `.claude/`.
 - [ ] **0.13** You start the tasks that wait on other companies:
   - Activate the Datadog student plan.
   - Create a Cloudflare account and a Workers AI API token. Store the token in `.env`, never in git. You host Firecrawl yourself, so it needs no account.

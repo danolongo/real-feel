@@ -27,8 +27,7 @@ model/*.onnx.data
 .DS_Store
 
 # Claude
-.claude/*
-!.claude/CLAUDE.md
+.claude/
 
 # Terraform
 **/.terraform/
