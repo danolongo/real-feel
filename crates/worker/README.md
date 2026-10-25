@@ -58,7 +58,7 @@ Failure flow, in both roles:
 | `SCRAPER` | `twitterapi` | Scraper implementation: `twitterapi` or `fixture`. |
 | `TWITTERAPI_KEY` | none | The twitterapi.io key. Required with `SCRAPER=twitterapi`. |
 | `TWITTERAPI_PAGES` | `5` | The most search pages for each query, 20 tweets each. |
-| `TWITTERAPI_INTERVAL_SECS` | `5` | The pause between two requests. The free tier allows one request every 5 seconds. |
+| `TWITTERAPI_INTERVAL_SECS` | `5` | The time from the start of one request to the start of the next. The free tier allows one request every 5 seconds. |
 | `FIXTURE_PATH` | `crates/scraper/fixtures/default.json` | The file the `fixture` scraper reads. |
 | `CLASSIFIER` | `hosted` | Classifier implementation: `hosted` or `fake`. |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | none | Read by the hosted classifier. |

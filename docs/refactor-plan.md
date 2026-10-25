@@ -436,7 +436,7 @@ Postgres applies a status change only from the statuses this table allows. Any o
 | `QUERY_REUSE_SECS` | `3600` | API: how long a query stays reusable. `0` turns query reuse off. |
 | `TWITTERAPI_KEY` | none | scraper |
 | `TWITTERAPI_PAGES` | `5` | scraper: the most search pages for each query, 20 tweets each |
-| `TWITTERAPI_INTERVAL_SECS` | `5` | scraper: the pause between two requests. The free tier allows one request every 5 seconds. |
+| `TWITTERAPI_INTERVAL_SECS` | `5` | scraper: the time from the start of one request to the start of the next. The free tier allows one request every 5 seconds. |
 | `FIXTURE_PATH` | `crates/scraper/fixtures/default.json` | worker, with `SCRAPER=fixture` |
 | `CLASSIFIER` | `hosted` | worker: `hosted` or `fake` |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | none | classifier |

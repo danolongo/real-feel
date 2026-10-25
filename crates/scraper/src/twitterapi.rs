@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::Value;
+use tokio::time::Instant;
 use types::{Account, Tweet};
 
 use crate::{Error, Scraped, Scraper};
@@ -58,7 +59,8 @@ pub struct TwitterApi {
 }
 
 impl TwitterApi {
-    /// `pages` is the most search pages for one query. `interval` is the pause between two requests.
+    /// `pages` is the most search pages for one query. `interval` is the time from the start of one
+    /// request to the start of the next.
     pub fn new(
         base_url: impl Into<String>,
         key: impl Into<String>,
@@ -118,10 +120,10 @@ impl Scraper for TwitterApi {
         let mut account_ids = HashSet::new();
         let mut tweet_ids = HashSet::new();
         let mut cursor = String::new();
+        let mut next_request = Instant::now();
         for page_number in 0..self.pages {
-            if page_number > 0 {
-                tokio::time::sleep(self.interval).await;
-            }
+            tokio::time::sleep_until(next_request).await;
+            next_request = Instant::now() + self.interval;
             let page = self.fetch_page(query, &cursor, page_number + 1).await?;
             tracing::info!(
                 page = page_number + 1,
@@ -209,6 +211,27 @@ mod tests {
 
     fn scraper(server: &MockServer, pages: u32) -> TwitterApi {
         TwitterApi::new(server.uri(), "made-up-key", pages, Duration::ZERO)
+    }
+
+    #[tokio::test]
+    async fn counts_the_interval_from_the_start_of_each_request() {
+        let server = MockServer::start().await;
+        let slow = |response: ResponseTemplate| response.set_delay(Duration::from_millis(300));
+        Mock::given(query_param("cursor", ""))
+            .respond_with(slow(page(vec![tweet("101", "1")], Some("cursor-one"))))
+            .mount(&server)
+            .await;
+        Mock::given(query_param("cursor", "cursor-one"))
+            .respond_with(slow(page(vec![tweet("102", "2")], None)))
+            .mount(&server)
+            .await;
+        let scraper = TwitterApi::new(server.uri(), "made-up-key", 2, Duration::from_millis(400));
+
+        let started = Instant::now();
+        scraper.scrape("q").await.unwrap();
+
+        // Start to start: 400 ms, then a 300 ms response. A pause after each response takes 1000 ms.
+        assert!(started.elapsed() < Duration::from_millis(900));
     }
 
     #[tokio::test]

@@ -18,7 +18,7 @@ See [glossary.md](../../docs/glossary.md): scraper, query, tweet, account, fixtu
    - `query`: `{query} lang:en -filter:retweets`
    - `queryType`: `Latest`
    - `cursor`: empty for the first page, then the `next_cursor` of the previous page
-4. `TwitterApi` reads at most `pages` pages. It stops early when `has_next_page` is `false`. It waits `interval` between two requests.
+4. `TwitterApi` reads at most `pages` pages. It stops early when `has_next_page` is `false`. It starts each request at least `interval` after the start of the previous one. The time a response takes counts toward the interval.
 5. Every tweet in a search result carries its author, so `TwitterApi` makes no profile call.
 6. `TwitterApi` builds one `Account` for each distinct author ID and one `Tweet` for each distinct tweet ID. It keeps the first one it sees. `raw` holds the full tweet object or the full author object.
 7. The fixture implementation (`Fixture::load(path)`) reads a `Scraped` from a JSON file once. It returns that content for any query.
@@ -60,7 +60,7 @@ The scraper reads no environment variable. The worker reads these and passes the
 |----------|---------|---------|
 | `TWITTERAPI_KEY` | none | The twitterapi.io key. |
 | `TWITTERAPI_PAGES` | `5` | The most search pages for each query, 20 tweets each. |
-| `TWITTERAPI_INTERVAL_SECS` | `5` | The pause between two requests. |
+| `TWITTERAPI_INTERVAL_SECS` | `5` | The time from the start of one request to the start of the next. |
 
 `crates/scraper/fixtures/default.json` holds 5 tweets from 3 accounts. The IDs, handles, and account fields are made up.
 
