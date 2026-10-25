@@ -6,7 +6,6 @@ use api::{AppState, router};
 use aws_sdk_sqs::{Client, types::QueueAttributeName};
 use classifier::Fake as FakeClassifier;
 use db::{PgPool, Versions};
-use embedder::Fake as FakeEmbedder;
 use queue::Queue;
 use scraper::Fixture;
 use serde_json::{Value, json};
@@ -96,7 +95,6 @@ async fn a_query_over_http_ends_done_with_a_prediction_for_every_tweet() {
     let classifier_role = ClassifierRole {
         context: classifier_queues.context(&db).await,
         classifier: FakeClassifier::new(0.5, 0),
-        embedder: FakeEmbedder,
         metadata_version: MetadataVersion("v1".into()),
         question_version: QuestionVersion("v1".into()),
     };

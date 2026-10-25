@@ -5,7 +5,6 @@ use std::time::Duration;
 use aws_sdk_sqs::{Client, types::QueueAttributeName};
 use classifier::Fake as FakeClassifier;
 use db::{PgPool, Versions};
-use embedder::Fake as FakeEmbedder;
 use queue::Queue;
 use scraper::Fixture;
 use serde_json::json;
@@ -120,14 +119,10 @@ impl Stack {
         }
     }
 
-    async fn classifier_role(
-        &self,
-        classifier: FakeClassifier,
-    ) -> ClassifierRole<FakeClassifier, FakeEmbedder> {
+    async fn classifier_role(&self, classifier: FakeClassifier) -> ClassifierRole<FakeClassifier> {
         ClassifierRole {
             context: self.classifier_queues.context(&self.db).await,
             classifier,
-            embedder: FakeEmbedder,
             metadata_version: MetadataVersion("v1".into()),
             question_version: QuestionVersion("v1".into()),
         }

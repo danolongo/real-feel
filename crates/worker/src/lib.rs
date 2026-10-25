@@ -27,8 +27,6 @@ pub enum Error {
     Scraper(#[from] scraper::Error),
     #[error("classifier failed: {0}")]
     Classifier(#[from] classifier::Error),
-    #[error("embedder failed: {0}")]
-    Embedder(#[from] embedder::Error),
     #[error("metadata failed: {0}")]
     Metadata(#[from] metadata::Error),
     #[error("query {0} does not exist")]

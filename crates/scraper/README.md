@@ -49,7 +49,7 @@ Search results use the format `Sun Oct 25 09:56:57 +0000 2026`. `TwitterApi` par
 ### Price and rate limit
 
 - Price: $0.15 per 1,000 tweets, and at least $0.00015 per call. A new account gets up to $1 of credit. See [the spike report](../../docs/reports/spike-x-data.md).
-- Rate limit: the free tier allows one request every 5 seconds. A second request inside that window returns `429`. The default `interval` of 5 seconds respects it.
+- Rate limit: the free tier allows one request every 5 seconds. A second request inside that window returns `429`. The default `interval` of 5 seconds respects it. When a request still gets `429`, `TwitterApi` waits `interval` and sends the same request again. It makes at most 3 attempts for each page.
 - One page holds up to 20 tweets. The default of 5 pages costs about $0.015 for each query.
 
 ## Configuration
@@ -78,7 +78,8 @@ cargo test -p scraper
 
 ## Failure modes
 
-- twitterapi.io is down, rejects the key, or answers `429`. `scrape` returns `Error::Http`. The worker leaves the scraper job in the queue, and SQS delivers the job again.
+- twitterapi.io is down or rejects the key. `scrape` returns `Error::Http`.
+- twitterapi.io answers `429` on all 3 attempts for a page. `scrape` returns `Error::Http`. The worker leaves the scraper job in the queue, and SQS delivers the job again.
 - A tweet or author lacks a required field. `scrape` returns `Error::Json`.
 - A date does not match the format. `scrape` returns `Error::Date`.
 - The fixture file is missing or invalid. `Fixture::load` returns `Error::Io` or `Error::Json`.

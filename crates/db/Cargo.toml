@@ -8,7 +8,6 @@ rust-version.workspace = true
 integration = []
 
 [dependencies]
-pgvector = { version = "0.4.2", features = ["sqlx"] }
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "macros", "migrate"] }
 types = { path = "../types" }
 uuid.workspace = true

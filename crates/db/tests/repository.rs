@@ -1,6 +1,6 @@
 #![cfg(feature = "integration")]
 
-use db::{PgPool, Vector, Versions};
+use db::{PgPool, Versions};
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Barrier;
@@ -244,20 +244,10 @@ async fn seed_scraping(pool: &PgPool, tweets: usize) -> Uuid {
     query.id
 }
 
-fn embedding() -> Vec<(String, Vector)> {
-    vec![("0000".into(), Vector::from(vec![0.5; 384]))]
-}
-
 async fn finish(pool: &PgPool, id: Uuid, batch_number: i32) -> bool {
-    db::finish_batch(
-        pool,
-        id,
-        batch_number,
-        &[prediction("0000", "m1")],
-        &embedding(),
-    )
-    .await
-    .unwrap()
+    db::finish_batch(pool, id, batch_number, &[prediction("0000", "m1")])
+        .await
+        .unwrap()
 }
 
 async fn batch_rows(pool: &PgPool, id: Uuid) -> i64 {
@@ -357,7 +347,7 @@ async fn tweet_ids_without_prediction_filters_by_versions(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn finish_batch_writes_predictions_embeddings_and_the_batch(pool: PgPool) {
+async fn finish_batch_writes_predictions_and_the_batch(pool: PgPool) {
     let id = seed_scraping(&pool, 1).await;
     assert!(!finish(&pool, id, 0).await);
     assert!(db::query_batch_exists(&pool, id, 0).await.unwrap());
@@ -366,11 +356,6 @@ async fn finish_batch_writes_predictions_embeddings_and_the_batch(pool: PgPool) 
         .await
         .unwrap();
     assert!(missing.is_empty());
-    let stored: Vector = sqlx::query_scalar("SELECT embedding FROM tweets WHERE id = '0000'")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(stored.as_slice(), vec![0.5; 384]);
 }
 
 #[sqlx::test(migrations = "./migrations")]
