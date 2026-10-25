@@ -509,7 +509,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 - [ ] **3.6** `compute`: You create one `t3` EC2 instance for the API and one for the workers. Each runs Docker. Each instance profile has `AmazonSSMManagedInstanceCore`, ECR pull on the two repositories, and `ssm:GetParametersByPath` on `/real-feel/*`. The worker profile also has SQS send, receive, and delete on the four queues.
   - Terraform writes the configuration that is not secret to SSM Parameter Store as `String` parameters: the queue URLs, the DLQ URLs, the RDS endpoint, and `AWS_REGION`.
   - Terraform creates each secret as a `SecureString` parameter with a placeholder value and `ignore_changes = [value]`. You set the real values once with `aws ssm put-parameter`: `TWITTERAPI_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and the Datadog API key. No secret enters the Terraform state file.
-  - A restart script on each instance reads `/real-feel/*` from SSM, writes an env file, and runs each container with `docker run --env-file --network host`.
+  - A restart script on each instance reads `/real-feel/*` from SSM, writes an env file, and runs each container with `docker run --env-file` on the Docker network `real-feel`. The API container publishes port 80.
 - [ ] **3.7** `iam`: You create two roles.
   - The GitHub Actions role trusts OIDC tokens only with `aud = sts.amazonaws.com` and `sub = repo:danolongo/real-feel:ref:refs/heads/main`. It can push to the two ECR repositories, call `ecr:GetAuthorizationToken`, run `AWS-RunShellScript` only on instances tagged `project=real-feel`, and read the command results. It cannot do anything else.
   - The Datadog integration role lets Datadog read the CloudWatch metrics of SQS. It cannot do anything else.
@@ -518,7 +518,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
   2. It builds the images, tags them with the git SHA, and pushes them to ECR.
   3. It runs the restart script on the API instance through SSM Run Command, then on the worker instance. The API runs the migrations before the workers start.
   4. It waits for each command and fails when a command fails.
-- [ ] **3.9** You run the Datadog agent as a container on both instances. It receives OpenTelemetry traces on `localhost:4318` and collects the JSON logs of every container. Each container gets at least 10 seconds after `SIGTERM`, so it flushes its spans. You build a first dashboard: request rate, error rate, queue depth, and the time from `queued` to `done`.
+- [ ] **3.9** You run the Datadog agent as a container on both instances. It joins the Docker network `real-feel` as `datadog-agent`, receives OpenTelemetry traces on `http://datadog-agent:4318`, and collects the JSON logs of every container. Each container gets at least 10 seconds after `SIGTERM`, so it flushes its spans. You build a first dashboard: request rate, error rate, queue depth, and the time from `queued` to `done`.
 - [ ] **3.10** You write `infra/terraform/README.md`: setup, the SSM secrets, the first deploy, teardown, and costs. Costs include the public IPv4 addresses. After `terraform apply`, you run `deploy.yml` by hand, because the new ECR repositories are empty.
 - [ ] **3.11** `crates/api` and `crates/worker`:
   - The API runs `db::MIGRATOR` at startup, before it binds the port.
