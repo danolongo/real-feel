@@ -39,3 +39,5 @@ docs/decisions/
 
 # sqlx offline data (local only; CI compiles against a live Postgres)
 .sqlx/
+# Only the bootstrap and main configurations keep a Terraform lock file.
+infra/terraform/modules/**/.terraform.lock.hcl
