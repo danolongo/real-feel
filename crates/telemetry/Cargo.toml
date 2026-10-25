@@ -8,6 +8,7 @@ rust-version.workspace = true
 opentelemetry = "0.33"
 opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "http-proto", "reqwest-blocking-client", "reqwest-rustls"] }
 opentelemetry_sdk = "0.33"
+tokio = { version = "1", features = ["macros", "signal"] }
 tracing = "0.1"
 tracing-opentelemetry = "0.34"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }

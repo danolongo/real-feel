@@ -4,6 +4,7 @@ set -euo pipefail
 REGION=us-east-1
 ACCOUNT_ID=000000000000
 MAX_RECEIVE_COUNT=5
+VISIBILITY_TIMEOUT_SECS=300
 
 create_queue_pair() {
   local name=$1
@@ -11,7 +12,7 @@ create_queue_pair() {
 
   awslocal sqs create-queue --queue-name "${name}-dlq" --region "$REGION"
   awslocal sqs create-queue --queue-name "$name" --region "$REGION" \
-    --attributes "{\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"${dlq_arn}\\\",\\\"maxReceiveCount\\\":\\\"${MAX_RECEIVE_COUNT}\\\"}\"}"
+    --attributes "{\"VisibilityTimeout\":\"${VISIBILITY_TIMEOUT_SECS}\",\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"${dlq_arn}\\\",\\\"maxReceiveCount\\\":\\\"${MAX_RECEIVE_COUNT}\\\"}\"}"
 }
 
 create_queue_pair scraper-jobs

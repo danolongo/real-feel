@@ -29,6 +29,12 @@ pub struct Query {
 pub struct Account {
     pub id: String,
     pub handle: String,
+    pub joined_at: Option<DateTime<Utc>>,
+    pub followers: Option<i32>,
+    pub following: Option<i32>,
+    pub tweet_count: Option<i32>,
+    pub is_verified: Option<bool>,
+    pub is_automated: Option<bool>,
     pub raw: Value,
 }
 
@@ -71,6 +77,16 @@ pub struct MetadataVersion(pub String);
 #[serde(transparent)]
 #[sqlx(transparent)]
 pub struct QuestionVersion(pub String);
+
+/// What the classifier sends to Clef-flash for one tweet. `text` holds the tweet text and the metadata, laid out by the metadata version.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelInput {
+    pub tweet_id: String,
+    pub metadata_version: MetadataVersion,
+    pub question_version: QuestionVersion,
+    pub text: String,
+    pub question: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Prediction {

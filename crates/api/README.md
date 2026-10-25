@@ -8,12 +8,12 @@ The user sends queries to the API. The API inserts each query into Postgres and 
 
 ## Terms
 
-See [glossary.md](../../docs/glossary.md): API, query, query status, tweet, account, prediction, bot probability, result, page, cursor, scraper job, trace context, liveness check, readiness check, error code.
+See [glossary.md](../../docs/glossary.md): API, query, query status, query reuse, tweet, account, prediction, bot probability, result, page, cursor, scraper job, trace context, liveness check, readiness check, error code.
 
 ## How it works
 
 1. `main` calls `telemetry::init()`. It then reads the configuration, connects to Postgres, and binds `API_ADDR`.
-2. `POST /queries` trims the text and checks its length. It inserts a `queued` query and sends a scraper job. The job carries the trace context of the request.
+2. `POST /queries` trims the text and checks its length. It checks for query reuse. On a match, it returns the earlier query's ID and sends no scraper job. Otherwise it inserts a `queued` query and sends a scraper job. The job carries the trace context of the request.
 3. `GET /queries/{id}` returns the query status. When the status is `done`, it also returns one page of the result.
 4. The page holds one prediction for each tweet. The API selects it with `DEFAULT_MODEL_VERSION`, `DEFAULT_METADATA_VERSION`, and `DEFAULT_QUESTION_VERSION`. A tweet without a matching prediction has `"p_bot": null`.
 5. The page carries `p_bot` only. It has no `is_bot` field.
@@ -22,6 +22,8 @@ See [glossary.md](../../docs/glossary.md): API, query, query status, tweet, acco
 ### `POST /queries`
 
 The text must hold 1 to 512 characters after trimming. The API stores the trimmed text.
+
+A query reuses an earlier query when the texts match after trimming and lower-casing, the earlier query is younger than `QUERY_REUSE_SECS`, and its status is not `failed`. The earlier query can still be in progress. The response is the same `202` with the earlier query's ID.
 
 ```http
 POST /queries HTTP/1.1
@@ -168,10 +170,11 @@ Content-Type: application/json
 | `API_ADDR` | `0.0.0.0:8080` | The address the API binds. |
 | `DATABASE_URL` | none | The Postgres connection string. |
 | `SCRAPER_QUEUE_URL` | none | The URL of the `scraper-jobs` queue. |
+| `QUERY_REUSE_SECS` | `3600` | How long a query stays reusable, in seconds. `0` turns query reuse off. |
 | `DEFAULT_MODEL_VERSION` | none | The model version of the predictions in a result. |
 | `DEFAULT_METADATA_VERSION` | none | The metadata version of the predictions in a result. |
 | `DEFAULT_QUESTION_VERSION` | none | The question version of the predictions in a result. |
-| `RUST_LOG` | `info` | The log filter. |
+| `RUST_LOG` | Real Feel's crates at `info`, dependencies at `warn` | The log filter. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | The OTLP collector URL. Unset turns the exporter off. |
 | `AWS_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | none | The AWS client settings. See [`queue`](../queue/README.md). |
 
