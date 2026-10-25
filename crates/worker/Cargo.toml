@@ -1,0 +1,29 @@
+[package]
+name = "worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+integration = []
+
+[dependencies]
+classifier = { path = "../classifier" }
+db = { path = "../db" }
+embedder = { path = "../embedder" }
+futures = "0.3"
+metadata = { path = "../metadata" }
+queue = { path = "../queue" }
+scraper = { path = "../scraper" }
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls"] }
+telemetry = { path = "../telemetry" }
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tracing = "0.1"
+types = { path = "../types" }
+uuid.workspace = true
+
+[dev-dependencies]
+aws-config = "1"
+aws-sdk-sqs = "1"
+serde_json.workspace = true
