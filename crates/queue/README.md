@@ -18,6 +18,7 @@ See [glossary.md](../../docs/glossary.md): queue, job, scraper job, classifier j
 4. The receive count comes from the `ApproximateReceiveCount` attribute. It is 1 on the first receive and grows each time the visibility timeout expires without a delete.
 5. The worker calls `received.continue_trace(&span)`. The span then joins the trace that the sender started.
 6. The worker calls `delete(&received.receipt_handle)` after the job succeeds.
+7. The API calls `ping()` for its readiness check. `ping` succeeds when SQS answers for the queue.
 
 `ScraperJob` and `ClassifierJob` implement the `Job` trait. A new job type needs the same two methods.
 
