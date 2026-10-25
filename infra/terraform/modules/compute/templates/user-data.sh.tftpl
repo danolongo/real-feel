@@ -1,0 +1,15 @@
+#!/bin/bash
+set -euo pipefail
+
+dnf install -y docker
+systemctl enable --now docker
+
+docker network create real-feel
+
+mkdir -p /opt/real-feel
+printf '%s\n' '${role}' >/opt/real-feel/role
+
+cat >/opt/real-feel/restart.sh <<'RESTART_SCRIPT'
+${restart_script}
+RESTART_SCRIPT
+chmod 755 /opt/real-feel/restart.sh
