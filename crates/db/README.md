@@ -8,7 +8,7 @@ The API and the workers call `db`. `db` calls Postgres through `sqlx` and uses t
 
 ## Terms
 
-See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, prediction, model version, metadata version, question version, batch, result, Postgres.
+See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, prediction, model version, metadata version, question version, batch, batch number, batch count, embedding, result, Postgres.
 
 ## How it works
 
@@ -19,7 +19,21 @@ See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, 
 5. `set_status` runs one conditional `UPDATE`. It returns `true` when Postgres applied the change and `false` when the current status forbids it. For `failed`, the caller passes the error message.
 6. Each upsert writes with `ON CONFLICT … DO UPDATE … WHERE (columns) IS DISTINCT FROM (excluded columns)`. It returns the number of changed rows. A second call with the same input returns `0`, and `updated_at` stays the same. `upsert_query_tweet` and `upsert_query_batch` use `DO NOTHING`, because no column can change.
 7. `result_page` returns the tweets of one query, sorted by tweet ID. Each tweet carries its account and the prediction that matches the requested model version, metadata version, and question version. A tweet without a matching prediction carries none. The caller passes the last tweet ID of the previous page as `after`.
-8. `ping` runs `select 1`. The API uses it for the readiness check.
+8. `set_batch_count` records the batch count and sets the query status to `classifying` in one `UPDATE`. Postgres applies it only while the status is `scraping` and the batch count is null or equal to the new count. It returns whether Postgres applied it.
+9. `query_tweet_ids` returns the tweet IDs of one query, sorted by tweet ID. `tweets_with_accounts` returns the tweets and accounts for a list of tweet IDs.
+10. `query_batch_exists` returns whether a `query_batches` row exists for one query and batch number. The classifier worker uses it to skip a repeated classifier job.
+11. `tweet_ids_without_prediction` returns the tweet IDs, in the order given, that have no prediction for the given model version, metadata version, and question version.
+12. `finish_batch` runs one transaction:
+    1. It locks the query row with `SELECT … FOR UPDATE`.
+    2. It upserts the predictions with `upsert_prediction`.
+    3. It writes the embeddings to `tweets.embedding`.
+    4. It upserts the `query_batches` row.
+    5. It counts the `query_batches` rows.
+    6. When the batch count is not null and equals the count, it sets the query status to `done`.
+
+    It returns whether it set `done`. The lock makes two workers that finish the last two batches at once count one after the other. A repeated call changes no row.
+13. `Vector` is `pgvector::Vector`. `db` re-exports it, so callers bind embeddings with no extra dependency. `tweets.embedding` is `VECTOR(384)`. The migration creates the `vector` extension.
+14. `ping` runs `SELECT 1`. The API uses it for the readiness check.
 
 ### Status changes
 
