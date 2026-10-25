@@ -29,7 +29,8 @@ See [glossary.md](../../docs/glossary.md) for `bootstrap configuration`, `restar
 - Terraform 1.10 or newer.
 - The AWS CLI v2.
 - AWS credentials in your shell with permission to create the resources. Check them with `aws sts get-caller-identity`.
-- Your public IPv4 address as a `/32` CIDR, for example `203.0.113.7/32`.
+- The GitHub CLI, logged in with admin rights on the repository.
+- Your public IPv4 address as a `/32` CIDR, for example `203.0.113.7/32`. `curl -s https://checkip.amazonaws.com` prints the address.
 - A Datadog account and a Datadog API key.
 
 ## Configuration
@@ -52,12 +53,11 @@ Run every command from the repository root.
    terraform -chdir=infra/terraform/bootstrap apply
    ```
 
-   Note the bucket name in the output.
-
-2. Initialize the main configuration with that bucket.
+2. Initialize the main configuration with the bucket from the bootstrap output.
 
    ```bash
-   terraform -chdir=infra/terraform/main init -backend-config="bucket=<bucket name>"
+   terraform -chdir=infra/terraform/main init \
+     -backend-config="bucket=$(terraform -chdir=infra/terraform/bootstrap output -raw state_bucket_name)"
    ```
 
 3. Get the external ID from Datadog. Open **Integrations** → **AWS** → **Add AWS Account** → **Role Delegation**. Copy the external ID. Stop before you enter a role ARN. You enter it in step 7.
@@ -76,7 +76,7 @@ Run every command from the repository root.
 
    ```bash
    for name in TWITTERAPI_KEY CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN DD_API_KEY; do
-     read -rs -p "$name: " value; echo
+     printf '%s: ' "$name"; read -rs value; echo
      aws ssm put-parameter --name "/real-feel/$name" --type SecureString --value "$value" --overwrite
    done
    ```
@@ -89,7 +89,7 @@ Run every command from the repository root.
 
 7. Finish the Datadog AWS integration. Paste the output of `terraform -chdir=infra/terraform/main output -raw datadog_role_arn` into the role ARN field. Enable the SQS metrics, then save.
 
-8. Run `deploy.yml` by hand. The new ECR repositories are empty, so no merge to `main` has pushed images yet.
+8. Run `deploy.yml` by hand. The new ECR repositories are empty, so no merge to `main` has pushed images yet. GitHub runs `deploy.yml` only from `main`, and the deploy role trusts only `main`. First wait until both instances appear in `aws ssm describe-instance-information`. The instances need a few minutes after `apply` to install Docker and register with SSM.
 
    ```bash
    gh workflow run deploy.yml
@@ -149,6 +149,7 @@ These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-
 
 ## Failure modes
 
+- **`apply` fails because the GitHub OIDC provider already exists.** Another project in the account created it. Import it with `terraform -chdir=infra/terraform/main import module.iam.aws_iam_openid_connect_provider.github <provider ARN>`, then run `apply` again.
 - **`apply` fails with an access error.** Your AWS credentials lack a permission. Fix the credentials and run `apply` again.
 - **`deploy.yml` cannot assume the role.** `AWS_DEPLOY_ROLE_ARN` is wrong or missing. Set it again from step 6.
 - **The restart script fails on an instance.** Run `aws ssm start-session --target <instance id>`, then read the script output. A secret that still holds `placeholder` is the usual cause. Redo step 5.

@@ -320,7 +320,7 @@ The self-hosted backend (M6 and M7) comes after the load tests. The load tests n
 - [x] **0.12** You rewrite `README.md` for the new architecture. `.claude/CLAUDE.md` stays local: git ignores `.claude/`.
 - [x] **0.13** You start the tasks that wait on other companies:
   - Activate the Datadog student plan.
-  - Create a Cloudflare account and a Workers AI API token. Store the token in `.env`, never in git. You host Firecrawl yourself, so it needs no account.
+  - Create a Cloudflare account and a Workers AI API token. Store the token in `.env`, never in git.
 - [x] **0.14** You create an AWS Budgets alert with a monthly limit you choose.
 - [x] **0.15** You add a CI check on every PR. It rejects a commit or PR title that breaks the [commit format](writing-rules.md#commit-messages). It rejects any commit with a `Co-authored-by` line.
 
@@ -505,7 +505,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
   - The worker security group allows no inbound traffic. The RDS security group allows port 5432 only from the API and worker security groups.
 - [ ] **3.3** `database`: You create RDS Postgres 16 on the smallest instance class: single-AZ, 20 GB gp3, `skip_final_snapshot = true`, `deletion_protection = false`, `backup_retention_period = 1`. RDS manages the master password in Secrets Manager. pgvector is available on RDS, so this task creates no extension.
 - [ ] **3.4** `queues`: You create `scraper-jobs`, `classifier-jobs`, and their DLQs, with `maxReceiveCount = 5` and a visibility timeout of 300 seconds.
-- [ ] **3.5** `registry`: You create the ECR repositories `api` and `worker` with `force_delete = true`. You write multi-stage Dockerfiles for `api` and `worker`. The images are `linux/arm64`. `deploy.yml` builds them natively on an ARM runner. The build compiles with `SQLX_OFFLINE=true` and reads `.sqlx/` from the build context.
+- [ ] **3.5** `registry`: You create the ECR repositories `api` and `worker` with `force_delete = true`. You write one multi-stage Dockerfile with the targets `api` and `worker`. cargo-chef caches the dependencies in their own layer. The images are `linux/arm64`. `deploy.yml` builds them natively on an ARM runner, and CI builds them on every PR. The build compiles with `SQLX_OFFLINE=true` and reads `.sqlx/` from the build context.
 - [ ] **3.6** `compute`: You create one Graviton `t4g` EC2 instance for the API and one for the workers. Each runs Docker. Each instance profile has `AmazonSSMManagedInstanceCore`, ECR pull on the two repositories, and `ssm:GetParametersByPath` on `/real-feel/*`. The worker profile also has SQS send, receive, and delete on the four queues.
   - Terraform writes the configuration that is not secret to SSM Parameter Store as `String` parameters: the queue URLs, the DLQ URLs, the RDS endpoint, and `AWS_REGION`.
   - Terraform creates each secret as a `SecureString` parameter with a placeholder value and `ignore_changes = [value]`. You set the real values once with `aws ssm put-parameter`: `TWITTERAPI_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and the Datadog API key. No secret enters the Terraform state file.
@@ -586,6 +586,8 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
   - **System only:** fake scraper and fake classifier. The test measures Real Feel's own code.
   - **Full:** real twitterapi.io and the hosted backend. The test measures the whole chain. It costs real money, so run it at a small scale.
 - [ ] **5.3** You record the baseline break points on one API instance. You write `docs/reports/load-baseline.md`.
+  - The load tests run on a fixed-performance Graviton type such as `c7g` or `m7g`. You set it with the `instance_type` variable of `compute`.
+  - A `t4g` instance slows down when its CPU credits run out. Its break points would measure the credit balance, not the code.
 - [ ] **5.4** You add an ALB and an Auto Scaling Group for the API. The ALB checks `GET /health`. ACM provides the HTTPS certificate.
 - [ ] **5.5** You give each worker role its own Auto Scaling Group. Each group scales on its queue's backlog per instance.
 - [ ] **5.6** You add connection pooling: RDS Proxy or PgBouncer. You add a read replica only if the load tests show reads limit throughput.
