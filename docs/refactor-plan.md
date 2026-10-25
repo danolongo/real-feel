@@ -62,7 +62,7 @@ Datadog watches every component. OpenTelemetry carries the traces.
 ### Request flow
 
 1. The user sends `POST /queries` with the query text.
-2. The API inserts the query into Postgres with query status `queued`.
+2. The API checks for [query reuse](#query-reuse). On a match, it returns `202` and the earlier query's ID, and stops. Otherwise it inserts the query into Postgres with query status `queued`.
 3. The API sends a scraper job to the `scraper-jobs` queue. The job carries the trace context.
 4. The API returns `202` and the query ID.
 5. A scraper worker takes the scraper job. It sets the query status to `scraping`.
@@ -79,6 +79,15 @@ Datadog watches every component. OpenTelemetry carries the traces.
 Step 8 comes before step 9 on purpose. If the scraper worker sent classifier jobs first, a fast classifier worker could finish the last batch while the batch count was still null. No worker would set `done`.
 
 The row lock in step 12 matters. Without it, two workers that finish the last two batches at once could each count one batch short. Neither would set `done`.
+
+### Query reuse
+
+- A new query reuses an earlier query when both conditions hold:
+  - The two texts match after trimming and lower-casing.
+  - The earlier query is younger than `QUERY_REUSE_SECS` and its status is not `failed`.
+- The earlier query can still be in progress. The new request then waits on the same scrape.
+- The API runs the check and the insert in one transaction. It first takes a Postgres advisory lock on the hash of the lower-cased text. Two identical queries sent at once then get one query ID and one scraper job.
+- A failed query is never reused. The next identical query scrapes again.
 
 ### Failure flow
 
@@ -416,13 +425,15 @@ Postgres applies a status change only from the statuses this table allows. Any o
 - 2.1 comes before 2.2. 2.2 comes before 2.6.
 - 2.3, 2.4, and 2.5 start at once, beside 2.1. They use the M1 `Tweet` and `Account` types.
 - 2.6 and 2.7 need 2.2 to 2.5. 2.8 and 2.9 need 2.6 and 2.7.
-- 2.10 needs 2.4. 2.11 needs every other task.
+- 2.10 needs 2.4. 2.12 needs only M1.
+- 2.11 needs every other task.
 
 **Configuration**
 
 | Variable | Default | Read by |
 |----------|---------|---------|
 | `SCRAPER` | `twitterapi` | worker: `twitterapi` or `fixture` |
+| `QUERY_REUSE_SECS` | `3600` | API: how long a query stays reusable. `0` turns query reuse off. |
 | `TWITTERAPI_KEY` | none | scraper |
 | `TWITTERAPI_PAGES` | `5` | scraper: the most search pages for each query, 20 tweets each |
 | `TWITTERAPI_INTERVAL_SECS` | `5` | scraper: the pause between two requests. The free tier allows one request every 5 seconds. |
@@ -439,7 +450,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 **Tasks**
 
 - [x] **2.1** **Spike:** You test self-hosted Firecrawl against an X search page, a profile page, and a tweet page. X blocks all three, so you test twitterapi.io with `scripts/spike-twitterapi.sh`. You record which fields come back. You write `docs/reports/spike-x-data.md` and a decision record that settles O1.
-- [ ] **2.2** `crates/scraper`: You define `trait Scraper`. You write the twitterapi.io implementation and a fixture implementation. The fixture implementation reads JSON files from `crates/scraper/fixtures/`. You add migrations for the `accounts` columns that spike 2.1 confirms. A tweet ID and an account ID hold X's numeric IDs as text.
+- [x] **2.2** `crates/scraper`: You define `trait Scraper`. You write the twitterapi.io implementation and a fixture implementation. The fixture implementation reads JSON files from `crates/scraper/fixtures/`. You add migrations for the `accounts` columns that spike 2.1 confirms. A tweet ID and an account ID hold X's numeric IDs as text.
 - [x] **2.3** `crates/metadata`: You define `ModelInput` in `crates/types`. You write metadata version `v1` (tweet text only) and question version `v1` (bot or human). The functions are pure: the same tweet and account always give the same model input.
 - [x] **2.4** `crates/classifier`: You define `trait Classifier`. You write the hosted implementation and the fake. The hosted implementation:
   - reads Cloudflare's request format for Clef-flash and records it in the crate README
@@ -452,6 +463,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 - [x] **2.9** You add the `e2e` job to `ci.yml`. The test sits in `crates/worker/tests/e2e.rs` behind an `e2e` feature. Docker Compose runs Postgres and LocalStack. The test starts the API router and both worker roles in one process, with the fixture scraper and the fake classifier. A fixture of 5 tweets and `BATCH_SIZE=2` give 3 batches. The test polls `GET /queries/{id}` until the status is `done`.
 - [x] **2.10** You add `nightly.yml` with a contract test against the hosted backend. It reads `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from GitHub secrets. It sends one fixed model input and asserts one bot probability from 0 to 1. A failure fails the workflow, and GitHub emails you.
 - [ ] **2.11** You write `scripts/smoke.sh`. It sends one real query through twitterapi.io and the hosted backend on your machine. It passes when the status is `done`, the result holds at least 10 tweets, and every tweet has a prediction.
+- [ ] **2.12** `crates/api` and `crates/db`: You add [query reuse](#query-reuse) to `POST /queries`. A migration adds an index on `LOWER(text)` and `created_at`. Tests cover a match, a match while the earlier query runs, a `failed` earlier query, an earlier query older than `QUERY_REUSE_SECS`, and two identical requests sent at once.
 
 **Docs:** a `README.md` for `scraper`, `metadata`, `classifier`, `worker`. The `metadata` README defines `v1` field by field. You write `docs/reports/smoke-m2.md` with the query text, the tweet count, the batch count, and the run time.
 
@@ -464,6 +476,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 - [ ] A test redelivers a scraper job after the status reaches `classifying`. The query still ends with status `done`, with one `query_batches` row for each batch.
 - [ ] A test leaves a job in the dead-letter queue without a `failed` status. The dead-letter queue reader sets the status to `failed`.
 - [ ] A test with zero scraped tweets ends with status `done`.
+- [ ] A test sends two identical queries at once. Both get one query ID, and SQS holds one scraper job.
 - [ ] `scripts/smoke.sh` completes one real query. The smoke report records it.
 - [x] A decision record settles O1. O2 moves to M8 with the embeddings.
 
@@ -542,6 +555,8 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
   - `ramp`: a rising rate until the targets fail
   - `burst`: a sudden jump in rate
   - `soak`: a steady rate for one hour
+
+  Each scenario sets the share of queries that repeat an earlier query's text. The report gives the query reuse rate next to each break point.
 - [ ] **5.2** You run each scenario in two modes:
   - **System only:** fake scraper and fake classifier. The test measures Real Feel's own code.
   - **Full:** real twitterapi.io and the hosted backend. The test measures the whole chain. It costs real money, so run it at a small scale.

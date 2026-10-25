@@ -22,6 +22,7 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | Term | Part of speech | Definition | Do not use |
 |------|----------------|------------|------------|
 | query | noun | A natural-language question that a user sends to the API. Example: "what are people saying about AI?" | search, request, prompt |
+| query reuse | noun | The API answers a new query with the ID of an earlier query that has the same text, is younger than `QUERY_REUSE_SECS`, and has not failed. | cache, caching, dedup |
 | query status | noun | The stage a query is in. Values: `queued`, `scraping`, `classifying`, `done`, `failed`. | state, progress |
 | tweet | noun | One post on X. | post, status |
 | account | noun | The X profile that posts a tweet. | user, profile, author |
