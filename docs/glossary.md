@@ -96,6 +96,8 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | benchmark | noun | A fixed measurement of inference server speed: throughput and latency at set batch sizes. Never a verb. | perf test |
 | load test | noun | A k6 script that sends HTTP requests to the API at a set rate. | stress test, perf test |
 | break point | noun | The request rate at which a load test first fails its targets. | limit, ceiling |
+| contract test | noun | A test that sends one fixed model input to an inference backend and checks the shape of the answer. It spends real money, so it never runs in `ci.yml`. | smoke test, integration test |
+| nightly workflow | noun | The GitHub Actions workflow `nightly.yml`. It runs the contract test once a day. | cron job |
 | milestone | noun | A numbered stage of the refactor plan (M0–M8). | phase, sprint |
 | gate | noun | The checklist that must hold true before you close a milestone. | exit criteria, acceptance |
 | spike | noun | Short, time-boxed research that answers one question and ends in a decision. | investigation, POC |
