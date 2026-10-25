@@ -21,6 +21,12 @@ fn account() -> Account {
     Account {
         id: "a1".into(),
         handle: "alice".into(),
+        joined_at: Some("2025-01-02T03:04:05Z".parse().unwrap()),
+        followers: Some(120),
+        following: Some(45),
+        tweet_count: Some(900),
+        is_verified: Some(true),
+        is_automated: Some(false),
         raw: json!({"k": 1}),
     }
 }
@@ -104,6 +110,27 @@ async fn upsert_with_changed_content_changes_the_row(pool: PgPool) {
         ..account()
     };
     assert_eq!(db::upsert_account(&pool, &renamed).await.unwrap(), 1);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn upsert_with_a_changed_account_field_changes_the_row(pool: PgPool) {
+    db::upsert_account(&pool, &account()).await.unwrap();
+    let grown = Account {
+        followers: Some(121),
+        ..account()
+    };
+    assert_eq!(db::upsert_account(&pool, &grown).await.unwrap(), 1);
+    assert_eq!(db::upsert_account(&pool, &grown).await.unwrap(), 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn account_fields_round_trip_through_tweets_with_accounts(pool: PgPool) {
+    db::upsert_account(&pool, &account()).await.unwrap();
+    db::upsert_tweet(&pool, &tweet("0001")).await.unwrap();
+    let rows = db::tweets_with_accounts(&pool, &["0001".to_string()])
+        .await
+        .unwrap();
+    assert_eq!(rows[0].1, account());
 }
 
 #[sqlx::test(migrations = "./migrations")]

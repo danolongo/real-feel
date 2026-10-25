@@ -99,6 +99,12 @@ async fn seed_done_query(pool: &PgPool, tweets: usize) -> Uuid {
         &Account {
             id: "a1".into(),
             handle: "alice".into(),
+            joined_at: None,
+            followers: None,
+            following: None,
+            tweet_count: None,
+            is_verified: None,
+            is_automated: None,
             raw: json!({}),
         },
     )

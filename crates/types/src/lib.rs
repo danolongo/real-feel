@@ -29,6 +29,12 @@ pub struct Query {
 pub struct Account {
     pub id: String,
     pub handle: String,
+    pub joined_at: Option<DateTime<Utc>>,
+    pub followers: Option<i32>,
+    pub following: Option<i32>,
+    pub tweet_count: Option<i32>,
+    pub is_verified: Option<bool>,
+    pub is_automated: Option<bool>,
     pub raw: Value,
 }
 
