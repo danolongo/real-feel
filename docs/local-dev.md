@@ -19,7 +19,7 @@ This file takes you from a clean machine to a running stack. Run every command f
 
    `.env.example` also lists the worker variables: `SCRAPER`, `TWITTERAPI_KEY`, `TWITTERAPI_PAGES`, `TWITTERAPI_INTERVAL_SECS`, `CLASSIFIER`, `CLASSIFIER_RPS`, `BATCH_SIZE`, `JOB_DEADLINE_SECS`, `SCRAPER_DLQ_URL`, and `CLASSIFIER_DLQ_URL`. Their defaults run the worker locally. Set `SCRAPER=fixture` and `CLASSIFIER=fake` to run with no network. Set `TWITTERAPI_KEY` only when `SCRAPER` is `twitterapi`. Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` only when `CLASSIFIER` is `hosted`.
 
-2. Start Postgres (port 5433) and LocalStack (port 4566).
+2. Start Postgres (port 5433), LocalStack (port 4566), and Jaeger (ports 4318 and 16686).
 
    ```bash
    docker compose up -d
@@ -98,6 +98,22 @@ scripts/smoke.sh "what are people saying about AI?"
 ```
 
 The script starts the API on port 8090 and both worker roles, with query reuse off. It prints a summary and `PASS` when the status is `done`, the result holds at least 10 tweets, and every tweet has a bot probability. It writes the logs and the summary to `target/smoke/`.
+
+## Read the logs and the trace of a run
+
+`scripts/smoke.sh` sends spans to Jaeger and logs every step. After a run, it prints two things:
+
+- **The run log:** `target/smoke/run.log` holds every log line of the query from the API, the scraper worker, and the classifier worker, in time order. Each line is JSON. The `process` field names the process.
+
+  ```bash
+  jq -c '{t: .timestamp, process, message: .fields.message, fields: (.fields | del(.message))}' target/smoke/run.log
+  ```
+
+- **The trace link:** `http://localhost:16686/trace/<trace ID>` opens the trace in Jaeger. It shows each step as a span, with its time: the API request, the scrape and each twitterapi.io page, and each classifier batch and Clef-flash request.
+
+The raw logs of each process sit in `target/smoke/api.log`, `scraper.log`, and `classifier.log`.
+
+To trace the API and the worker when you run them yourself, set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`.
 
 ## Compile the SQL checks
 

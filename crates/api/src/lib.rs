@@ -51,11 +51,15 @@ struct Created {
     query_id: Uuid,
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(query_id = tracing::field::Empty, trace_id = tracing::field::Empty))]
 async fn create_query(
     State(state): State<AppState>,
     body: Result<Json<NewQuery>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Created>), ApiError> {
+    let span = tracing::Span::current();
+    if let Some(trace_id) = telemetry::trace_id(&span) {
+        span.record("trace_id", trace_id);
+    }
     let Json(body) = body.map_err(|_| ApiError::InvalidQuery)?;
     let text = body.text.trim();
     if !(1..=MAX_TEXT_CHARS).contains(&text.chars().count()) {
@@ -64,10 +68,14 @@ async fn create_query(
 
     let query = match db::create_or_reuse_query(&state.db, text, state.query_reuse).await? {
         CreatedQuery::Reused(query) => {
+            span.record("query_id", query.id.to_string());
+            tracing::info!(status = ?query.status, "query reused");
             return Ok((StatusCode::ACCEPTED, Json(Created { query_id: query.id })));
         }
         CreatedQuery::New(query) => query,
     };
+    span.record("query_id", query.id.to_string());
+    tracing::info!(text = %query.text, "query created");
     let job = ScraperJob {
         query_id: query.id,
         trace_context: None,
@@ -83,6 +91,7 @@ async fn create_query(
         .await?;
         return Err(ApiError::QueueUnavailable);
     }
+    tracing::info!("scraper job sent");
     Ok((StatusCode::ACCEPTED, Json(Created { query_id: query.id })))
 }
 

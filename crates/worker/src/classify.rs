@@ -26,9 +26,11 @@ impl<C: Classifier + Sync> ClassifierRole<C> {
         self.context.work(async |job| self.handle(job).await).await
     }
 
+    #[tracing::instrument(name = "classify_job", skip_all, fields(batch_number = job.batch_number))]
     pub async fn handle(&self, job: &ClassifierJob) -> Result<(), Error> {
         let db = &self.context.db;
         if db::query_batch_exists(db, job.query_id, job.batch_number).await? {
+            tracing::info!("batch already finished, skipping the job");
             return Ok(());
         }
         let versions = Versions {
@@ -44,12 +46,21 @@ impl<C: Classifier + Sync> ClassifierRole<C> {
                 metadata::build(tweet, account, &versions.metadata, &versions.question)
             })
             .collect::<Result<Vec<_>, _>>()?;
+        tracing::info!(
+            tweets = job.tweet_ids.len(),
+            to_classify = inputs.len(),
+            "classifying batch"
+        );
         let predictions = if inputs.is_empty() {
             Vec::new()
         } else {
             self.classifier.classify(&inputs).await?
         };
-        db::finish_batch(db, job.query_id, job.batch_number, &predictions).await?;
+        let done = db::finish_batch(db, job.query_id, job.batch_number, &predictions).await?;
+        tracing::info!(predictions = predictions.len(), "batch finished");
+        if done {
+            tracing::info!("every batch finished, query done");
+        }
         Ok(())
     }
 }

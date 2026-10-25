@@ -174,7 +174,7 @@ Content-Type: application/json
 | `DEFAULT_MODEL_VERSION` | none | The model version of the predictions in a result. |
 | `DEFAULT_METADATA_VERSION` | none | The metadata version of the predictions in a result. |
 | `DEFAULT_QUESTION_VERSION` | none | The question version of the predictions in a result. |
-| `RUST_LOG` | `info` | The log filter. |
+| `RUST_LOG` | Real Feel's crates at `info`, dependencies at `warn` | The log filter. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | The OTLP collector URL. Unset turns the exporter off. |
 | `AWS_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | none | The AWS client settings. See [`queue`](../queue/README.md). |
 

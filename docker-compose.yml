@@ -27,6 +27,14 @@ services:
       - localstack_data:/var/lib/localstack
       - ./infra/localstack/init.sh:/etc/localstack/init/ready.d/init.sh
 
+  jaeger:
+    image: jaegertracing/jaeger:2.1.0
+    ports:
+      # trace viewer
+      - "16686:16686"
+      # OTLP over HTTP
+      - "4318:4318"
+
 volumes:
   postgres_data:
   localstack_data:

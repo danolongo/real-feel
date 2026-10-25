@@ -2,6 +2,7 @@
 # Task 2.11: sends one real query through twitterapi.io and the hosted backend.
 # Starts the API and both worker roles, waits for the status `done`, and checks the result.
 # Passes when the result holds at least 10 tweets and every tweet has a bot probability.
+# Writes every log line of the query, in order, to target/smoke/run.log and prints its Jaeger trace link.
 # Needs `docker compose up -d`, the applied migrations, and TWITTERAPI_KEY,
 # CLOUDFLARE_ACCOUNT_ID, and CLOUDFLARE_API_TOKEN in .env.
 # One run with TWITTERAPI_PAGES=5 costs about $0.02 at twitterapi.io.
@@ -35,12 +36,18 @@ export DEFAULT_QUESTION_VERSION=${DEFAULT_QUESTION_VERSION:-v1}
 # The smoke test always uses the real services and always scrapes.
 export SCRAPER=twitterapi CLASSIFIER=hosted QUERY_REUSE_SECS=0
 export DEFAULT_MODEL_VERSION=clef-flash-hosted
+export OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
 export API_ADDR=127.0.0.1:${SMOKE_PORT:-8090}
 API=http://$API_ADDR
 
 cargo build -q -p api -p worker
 pids=()
-trap 'kill "${pids[@]}" 2>/dev/null || true' EXIT
+stop() {
+  kill "${pids[@]}" 2>/dev/null || true
+  # Each process flushes its spans to Jaeger before it exits.
+  wait "${pids[@]}" 2>/dev/null || true
+}
+trap stop EXIT
 target/debug/api >"$OUT/api.log" 2>&1 & pids+=($!)
 target/debug/worker --role scraper >"$OUT/scraper.log" 2>&1 & pids+=($!)
 target/debug/worker --role classifier >"$OUT/classifier.log" 2>&1 & pids+=($!)
@@ -89,6 +96,16 @@ jq -n --arg query "$QUERY" --arg id "$id" --arg status "$status" \
   '{query: $query, query_id: $id, status: $status, tweets: $tweets,
     tweets_without_p_bot: $missing, batch_count: $batch_count, seconds: $seconds}' |
   tee "$OUT/summary.json"
+
+stop
+trap - EXIT
+for process in api scraper classifier; do
+  jq -c --arg process "$process" --arg id "$id" \
+    'select(any(.spans[]?; .query_id == $id)) | . + {process: $process}' "$OUT/$process.log"
+done | sort >"$OUT/run.log"
+trace_id=$(jq -r 'select(.fields.message == "query created") | .span.trace_id // empty' "$OUT/api.log")
+echo "Log of the run: $OUT/run.log ($(wc -l <"$OUT/run.log" | tr -d ' ') lines)"
+[ -n "$trace_id" ] && echo "Trace: http://localhost:16686/trace/$trace_id"
 
 if [ "$status" = done ] && [ "$tweets" -ge 10 ] && [ "$missing" -eq 0 ]; then
   echo "PASS"

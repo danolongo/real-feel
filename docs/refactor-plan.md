@@ -425,7 +425,7 @@ Postgres applies a status change only from the statuses this table allows. Any o
 - 2.1 comes before 2.2. 2.2 comes before 2.6.
 - 2.3, 2.4, and 2.5 start at once, beside 2.1. They use the M1 `Tweet` and `Account` types.
 - 2.6 and 2.7 need 2.2 to 2.5. 2.8 and 2.9 need 2.6 and 2.7.
-- 2.10 needs 2.4. 2.12 needs only M1.
+- 2.10 needs 2.4. 2.12 needs only M1. 2.13 needs 2.6 and 2.7.
 - 2.11 needs every other task.
 
 **Configuration**
@@ -464,6 +464,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 - [x] **2.10** You add `nightly.yml` with a contract test against the hosted backend. It reads `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from GitHub secrets. It sends one fixed model input and asserts one bot probability from 0 to 1. A failure fails the workflow, and GitHub emails you.
 - [x] **2.11** You write `scripts/smoke.sh`. It sends one real query through twitterapi.io and the hosted backend on your machine. It passes when the status is `done`, the result holds at least 10 tweets, and every tweet has a prediction.
 - [x] **2.12** `crates/api` and `crates/db`: You add [query reuse](#query-reuse) to `POST /queries`. A migration adds an index on `LOWER(text)` and `created_at`. Tests cover a match, a match while the earlier query runs, a `failed` earlier query, an earlier query older than `QUERY_REUSE_SECS`, and two identical requests sent at once.
+- [x] **2.13** Local observability. `docker-compose.yml` runs Jaeger. The API and both worker roles log every step of a query at `info` and name each process in its spans. `scripts/smoke.sh` writes the run log and prints the Jaeger trace link. The trace of one query spans the API, the scraper worker, and the classifier worker.
 
 **Docs:** a `README.md` for `scraper`, `metadata`, `classifier`, `worker`. The `metadata` README defines `v1` field by field. You write `docs/reports/smoke-m2.md` with the query text, the tweet count, the batch count, and the run time.
 

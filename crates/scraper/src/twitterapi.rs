@@ -75,7 +75,8 @@ impl TwitterApi {
     }
 
     /// Sends the request again after `interval` when twitterapi.io answers `429`.
-    async fn fetch_page(&self, query: &str, cursor: &str) -> Result<SearchPage, Error> {
+    #[tracing::instrument(name = "twitterapi_page", skip(self, query, cursor))]
+    async fn fetch_page(&self, query: &str, cursor: &str, page: u32) -> Result<SearchPage, Error> {
         let mut attempt = 1;
         loop {
             let response = self
@@ -96,6 +97,10 @@ impl TwitterApi {
                 .send()
                 .await?;
             if response.status() == StatusCode::TOO_MANY_REQUESTS && attempt < MAX_ATTEMPTS {
+                tracing::warn!(
+                    attempt,
+                    "twitterapi.io answered 429, sending the request again"
+                );
                 attempt += 1;
                 tokio::time::sleep(self.interval).await;
                 continue;
@@ -106,6 +111,7 @@ impl TwitterApi {
 }
 
 impl Scraper for TwitterApi {
+    #[tracing::instrument(name = "twitterapi_scrape", skip_all)]
     async fn scrape(&self, query: &str) -> Result<Scraped, Error> {
         let mut accounts = Vec::new();
         let mut tweets = Vec::new();
@@ -116,7 +122,13 @@ impl Scraper for TwitterApi {
             if page_number > 0 {
                 tokio::time::sleep(self.interval).await;
             }
-            let page = self.fetch_page(query, &cursor).await?;
+            let page = self.fetch_page(query, &cursor, page_number + 1).await?;
+            tracing::info!(
+                page = page_number + 1,
+                tweets = page.tweets.len(),
+                has_next_page = page.has_next_page,
+                "twitterapi.io page fetched"
+            );
             for raw in page.tweets {
                 let tweet: SearchTweet = serde_json::from_value(raw.clone())?;
                 let author: SearchAuthor = serde_json::from_value(tweet.author.clone())?;
@@ -148,6 +160,11 @@ impl Scraper for TwitterApi {
             }
             cursor = page.next_cursor;
         }
+        tracing::info!(
+            tweets = tweets.len(),
+            accounts = accounts.len(),
+            "scrape finished"
+        );
         Ok(Scraped { accounts, tweets })
     }
 }

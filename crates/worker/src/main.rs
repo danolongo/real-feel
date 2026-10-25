@@ -34,39 +34,44 @@ async fn context(jobs: &str, dlq: &str) -> Result<Context, Box<dyn std::error::E
 }
 
 async fn run_scraper(scraper: impl Scraper + Sync) -> Result<(), Box<dyn std::error::Error>> {
-    ScraperRole {
+    let role = ScraperRole {
         context: context("SCRAPER_QUEUE_URL", "SCRAPER_DLQ_URL").await?,
         scraper,
         classifier_jobs: Queue::connect(var("CLASSIFIER_QUEUE_URL")?).await,
         batch_size: number("BATCH_SIZE")?,
+    };
+    tokio::select! {
+        () = role.run() => {}
+        () = telemetry::shutdown_signal() => tracing::info!("worker stopped"),
     }
-    .run()
-    .await;
     Ok(())
 }
 
 async fn run_classifier(
     classifier: impl Classifier + Sync,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    ClassifierRole {
+    let role = ClassifierRole {
         context: context("CLASSIFIER_QUEUE_URL", "CLASSIFIER_DLQ_URL").await?,
         classifier,
         metadata_version: MetadataVersion(var("DEFAULT_METADATA_VERSION")?),
         question_version: QuestionVersion(var("DEFAULT_QUESTION_VERSION")?),
+    };
+    tokio::select! {
+        () = role.run() => {}
+        () = telemetry::shutdown_signal() => tracing::info!("worker stopped"),
     }
-    .run()
-    .await;
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let _telemetry = telemetry::init()?;
     let args: Vec<String> = env::args().collect();
     let role = match args.as_slice() {
         [_, flag, role] if flag == "--role" => role.as_str(),
         _ => return Err("usage: worker --role scraper|classifier".into()),
     };
+    let _telemetry = telemetry::init(&format!("worker-{role}"))?;
+    tracing::info!(role, "worker started");
     match role {
         "scraper" => match var_or("SCRAPER", "twitterapi").as_str() {
             "twitterapi" => {

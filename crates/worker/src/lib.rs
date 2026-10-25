@@ -1,4 +1,7 @@
-use std::{convert::Infallible, time::Duration};
+use std::{
+    convert::Infallible,
+    time::{Duration, Instant},
+};
 
 use futures::future::join_all;
 use queue::{Job, Queue, Received};
@@ -93,9 +96,15 @@ impl Context {
         let span = tracing::info_span!(
             "job",
             query_id = %received.job.query_id(),
-            receive_count = received.receive_count
+            receive_count = received.receive_count,
+            trace_id = tracing::field::Empty
         );
         received.continue_trace(&span);
+        if let Some(trace_id) = telemetry::trace_id(&span) {
+            span.record("trace_id", trace_id);
+        }
+        span.in_scope(|| tracing::info!("job received"));
+        let started = Instant::now();
         let outcome = async {
             tokio::time::timeout(self.deadline, handle(&received.job))
                 .await
@@ -106,12 +115,14 @@ impl Context {
         let _entered = span.enter();
         match outcome {
             Ok(()) => {
-                if let Err(error) = self.jobs.delete(&received.receipt_handle).await {
-                    tracing::error!(%error, "cannot delete the job");
+                let elapsed_ms = started.elapsed().as_millis() as u64;
+                match self.jobs.delete(&received.receipt_handle).await {
+                    Ok(()) => tracing::info!(elapsed_ms, "job done"),
+                    Err(error) => tracing::error!(%error, "cannot delete the job"),
                 }
             }
             Err(error) => {
-                tracing::warn!(%error, "job failed");
+                tracing::warn!(%error, elapsed_ms = started.elapsed().as_millis() as u64, "job failed");
                 if received.receive_count >= FINAL_RECEIVE {
                     self.fail(received.job.query_id(), &error.to_string()).await;
                 }
@@ -125,6 +136,10 @@ impl Context {
             match self.dlq.receive::<J>(WAIT_SECONDS).await {
                 Ok(received) => {
                     for received in received {
+                        tracing::warn!(
+                            query_id = %received.job.query_id(),
+                            "dead-letter job found, failing the query"
+                        );
                         let failed = db::set_status(
                             &self.db,
                             received.job.query_id(),

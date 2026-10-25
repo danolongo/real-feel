@@ -39,7 +39,7 @@ impl Config {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let _telemetry = telemetry::init()?;
+    let _telemetry = telemetry::init("api")?;
     let config = Config::from_env()?;
 
     let state = AppState {
@@ -55,6 +55,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(&config.addr).await?;
     tracing::info!(addr = %config.addr, "api listening");
 
-    axum::serve(listener, router(state)).await?;
+    axum::serve(listener, router(state))
+        .with_graceful_shutdown(telemetry::shutdown_signal())
+        .await?;
+    tracing::info!("api stopped");
     Ok(())
 }

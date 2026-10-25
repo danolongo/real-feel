@@ -49,7 +49,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: test
     steps:
       - uses: actions/checkout@v7
-      - run: docker compose up -d --wait
+      - run: docker compose up -d --wait postgres localstack
       - name: Install the toolchain from rust-toolchain.toml
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
@@ -79,7 +79,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: test
     steps:
       - uses: actions/checkout@v7
-      - run: docker compose up -d --wait
+      - run: docker compose up -d --wait postgres localstack
       - name: Install the toolchain from rust-toolchain.toml
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2

@@ -1,13 +1,19 @@
 use std::collections::HashMap;
 
-use opentelemetry::{propagation::TextMapPropagator, trace::TracerProvider as _};
+use opentelemetry::{
+    propagation::TextMapPropagator,
+    trace::{TraceContextExt, TracerProvider as _},
+};
 use opentelemetry_otlp::{ExporterBuildError, SpanExporter};
-use opentelemetry_sdk::{propagation::TraceContextPropagator, trace::SdkTracerProvider};
+use opentelemetry_sdk::{Resource, propagation::TraceContextPropagator, trace::SdkTracerProvider};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 const TRACEPARENT: &str = "traceparent";
+/// Real Feel's crates log at `info`. Their dependencies log only warnings.
+const DEFAULT_FILTER: &str =
+    "warn,api=info,worker=info,scraper=info,classifier=info,queue=info,db=info";
 
 /// Flushes the pending spans when it drops. Keep it alive until the binary exits.
 pub struct Guard(Option<SdkTracerProvider>);
@@ -21,11 +27,17 @@ impl Drop for Guard {
 }
 
 /// Installs JSON logs, and a trace exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
-pub fn init() -> Result<Guard, ExporterBuildError> {
+/// `service` names the process in the trace viewer.
+pub fn init(service: &str) -> Result<Guard, ExporterBuildError> {
     let provider = if std::env::var_os("OTEL_EXPORTER_OTLP_ENDPOINT").is_some() {
         let exporter = SpanExporter::builder().with_http().build()?;
         Some(
             SdkTracerProvider::builder()
+                .with_resource(
+                    Resource::builder()
+                        .with_service_name(service.to_string())
+                        .build(),
+                )
                 .with_batch_exporter(exporter)
                 .build(),
         )
@@ -37,11 +49,30 @@ pub fn init() -> Result<Guard, ExporterBuildError> {
         .map(|provider| tracing_opentelemetry::layer().with_tracer(provider.tracer("real-feel")));
 
     tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| DEFAULT_FILTER.into()))
         .with(tracing_subscriber::fmt::layer().json())
         .with(otel_layer)
         .init();
     Ok(Guard(provider))
+}
+
+/// Returns the trace ID of `span`, or `None` when no trace is active.
+pub fn trace_id(span: &Span) -> Option<String> {
+    let context = span.context();
+    let span_context = context.span().span_context().clone();
+    span_context
+        .is_valid()
+        .then(|| span_context.trace_id().to_string())
+}
+
+/// Waits for SIGTERM or Ctrl-C. A binary that returns after it drops the guard and flushes the spans.
+pub async fn shutdown_signal() {
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("cannot listen for SIGTERM");
+    tokio::select! {
+        _ = terminate.recv() => {}
+        _ = tokio::signal::ctrl_c() => {}
+    }
 }
 
 /// Returns the current span's context as a W3C `traceparent` string.
@@ -91,6 +122,21 @@ mod tests {
             assert_eq!(trace_id(&received), trace_id(&sent));
             assert_ne!(received, sent);
         });
+    }
+
+    #[test]
+    fn trace_id_names_the_continued_trace() {
+        with_tracing(|| {
+            let sent = tracing::info_span!("sender").in_scope(|| current_traceparent().unwrap());
+            let receiver = tracing::info_span!("receiver");
+            continue_trace(&receiver, &sent);
+            assert_eq!(super::trace_id(&receiver).unwrap(), trace_id(&sent));
+        });
+    }
+
+    #[test]
+    fn trace_id_is_none_without_a_trace() {
+        assert_eq!(super::trace_id(&tracing::info_span!("alone")), None);
     }
 
     #[test]

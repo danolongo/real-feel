@@ -73,7 +73,12 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | upsert | verb | To insert a row, or to update the row when its key exists and its content differs. A second upsert with the same input changes no row. | insert-or-update, merge |
 | repository function | noun | A function in `crates/db` that runs SQL. No other code runs SQL. | query function, data access function |
 | receive count | noun | How many times SQS has delivered one job. The worker reads it from `ApproximateReceiveCount`. | delivery count, attempt count |
-| trace context | noun | The W3C `traceparent` value that a job carries, so the spans of the API and the worker join one trace. | trace header, trace ID |
+| trace context | noun | The W3C `traceparent` value that a job carries, so the spans of the API and the worker join one trace. | trace header |
+| trace | noun | The spans of one query, from the API through both worker roles. | request trace |
+| span | noun | One timed step inside a trace, such as one twitterapi.io page or one Clef-flash request. | segment |
+| trace ID | noun | The 32-digit hexadecimal ID that every span of one trace shares. Logs carry it in the `trace_id` field. | trace context |
+| Jaeger | noun | The trace viewer that `docker-compose.yml` runs locally. It receives OTLP on port 4318 and shows traces on port 16686. | tracing UI |
+| run log | noun | `target/smoke/run.log`: every log line of one smoke test query from all three processes, in time order. | combined log |
 | page | noun | One slice of a result that the API returns for one request. | slice, section |
 | cursor | noun | The last `tweet_id` of the previous page. You pass it as `after` to get the next page. | offset, page token |
 | liveness check | noun | The `GET /health` route. It returns `200` while the process runs and checks no dependency. | health probe |

@@ -97,6 +97,7 @@ impl Hosted {
         sleep(ceiling.mul_f64(fastrand::f64())).await;
     }
 
+    #[tracing::instrument(name = "clef_flash_request", skip_all, fields(tweet_id = %input.tweet_id))]
     async fn classify_one(&self, input: &ModelInput) -> Result<Prediction, Error> {
         let body = json!({
             "model": "clef-flash",
@@ -121,13 +122,28 @@ impl Hosted {
             }
             let retryable = status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error();
             if !retryable || attempt == MAX_ATTEMPTS {
+                tracing::warn!(
+                    status = status.as_u16(),
+                    attempt,
+                    "Clef-flash request failed"
+                );
                 return Err(Error::Status(status.as_u16()));
             }
+            tracing::warn!(
+                status = status.as_u16(),
+                attempt,
+                "Clef-flash answered an error, sending the request again"
+            );
             self.back_off(attempt).await;
             attempt += 1;
         };
         let output: Output =
             serde_json::from_value(result.clone()).map_err(|e| Error::Response(e.to_string()))?;
+        tracing::info!(
+            p_bot = output.answers.bot.noul,
+            attempts = attempt,
+            "Clef-flash answered"
+        );
         Ok(Prediction {
             tweet_id: input.tweet_id.clone(),
             model_version: self.model_version(),
@@ -145,6 +161,7 @@ impl Classifier for Hosted {
     }
 
     /// Cloudflare takes one state for each request, so this sends one request for each model input.
+    #[tracing::instrument(name = "clef_flash_classify", skip_all, fields(inputs = inputs.len()))]
     async fn classify(&self, inputs: &[ModelInput]) -> Result<Vec<Prediction>, Error> {
         try_join_all(inputs.iter().map(|input| self.classify_one(input))).await
     }
