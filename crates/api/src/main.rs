@@ -1,47 +1,52 @@
-use axum::{Router, http::StatusCode, routing::get};
+use std::{sync::Arc, time::Duration};
+
+use api::{AppState, router};
+use db::Versions;
+use queue::Queue;
+use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
+use types::{MetadataVersion, ModelVersion, QuestionVersion};
+
+struct Config {
+    addr: String,
+    database_url: String,
+    scraper_queue_url: String,
+    versions: Versions,
+}
+
+impl Config {
+    fn from_env() -> Result<Self, String> {
+        let var = |name: &str| std::env::var(name).map_err(|_| format!("{name} is not set"));
+        Ok(Self {
+            addr: std::env::var("API_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string()),
+            database_url: var("DATABASE_URL")?,
+            scraper_queue_url: var("SCRAPER_QUEUE_URL")?,
+            versions: Versions {
+                model: ModelVersion(var("DEFAULT_MODEL_VERSION")?),
+                metadata: MetadataVersion(var("DEFAULT_METADATA_VERSION")?),
+                question: QuestionVersion(var("DEFAULT_QUESTION_VERSION")?),
+            },
+        })
+    }
+}
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
-    tracing_subscriber::fmt()
-        .json()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let _telemetry = telemetry::init()?;
+    let config = Config::from_env()?;
 
-    let addr = std::env::var("API_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
-    let listener = TcpListener::bind(&addr).await?;
-    tracing::info!(%addr, "api listening");
+    let state = AppState {
+        db: PgPoolOptions::new()
+            .acquire_timeout(Duration::from_secs(5))
+            .connect(&config.database_url)
+            .await?,
+        queue: Queue::connect(config.scraper_queue_url).await,
+        versions: Arc::new(config.versions),
+    };
 
-    axum::serve(listener, router()).await
-}
+    let listener = TcpListener::bind(&config.addr).await?;
+    tracing::info!(addr = %config.addr, "api listening");
 
-fn router() -> Router {
-    Router::new().route("/health", get(health))
-}
-
-async fn health() -> StatusCode {
-    StatusCode::OK
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::{body::Body, http::Request};
-    use tower::ServiceExt;
-
-    #[tokio::test]
-    async fn health_returns_200() {
-        let request = Request::get("/health").body(Body::empty()).unwrap();
-        let response = router().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn unknown_path_returns_404() {
-        let request = Request::get("/nope").body(Body::empty()).unwrap();
-        let response = router().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
+    axum::serve(listener, router(state)).await?;
+    Ok(())
 }
