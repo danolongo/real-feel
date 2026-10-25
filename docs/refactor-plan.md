@@ -189,8 +189,7 @@ Each crate depends only on crates above it in this list. `types` depends on noth
 - The PR template asks for:
   - the milestone and task number
   - updated module docs
-  - new glossary terms
-  - the three writing rules, checked
+  - a decision record for each new architecture decision
 
 ### Commits
 
