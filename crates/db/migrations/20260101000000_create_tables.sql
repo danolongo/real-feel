@@ -1,51 +1,51 @@
-create type query_status as enum ('queued', 'scraping', 'classifying', 'done', 'failed');
+CREATE TYPE query_status AS ENUM ('queued', 'scraping', 'classifying', 'done', 'failed');
 
-create table queries (
-    id uuid primary key,
-    text text not null,
-    status query_status not null default 'queued',
-    error text,
-    batch_count integer,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now()
+CREATE TABLE queries (
+    id UUID PRIMARY KEY,
+    text TEXT NOT NULL,
+    status query_status NOT NULL DEFAULT 'queued',
+    error TEXT,
+    batch_count INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-create table accounts (
-    id text primary key,
-    handle text not null,
-    raw jsonb not null,
-    updated_at timestamptz not null default now()
+CREATE TABLE accounts (
+    id TEXT PRIMARY KEY,
+    handle TEXT NOT NULL,
+    raw JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-create table tweets (
-    id text primary key,
-    account_id text not null references accounts (id),
-    text text not null,
-    posted_at timestamptz,
-    raw jsonb not null,
-    updated_at timestamptz not null default now()
+CREATE TABLE tweets (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    text TEXT NOT NULL,
+    posted_at TIMESTAMPTZ,
+    raw JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-create table query_tweets (
-    query_id uuid not null references queries (id),
-    tweet_id text not null references tweets (id),
-    primary key (query_id, tweet_id)
+CREATE TABLE query_tweets (
+    query_id UUID NOT NULL REFERENCES queries (id),
+    tweet_id TEXT NOT NULL REFERENCES tweets (id),
+    PRIMARY KEY (query_id, tweet_id)
 );
 
-create table query_batches (
-    query_id uuid not null references queries (id),
-    batch_number integer not null,
-    finished_at timestamptz not null default now(),
-    primary key (query_id, batch_number)
+CREATE TABLE query_batches (
+    query_id UUID NOT NULL REFERENCES queries (id),
+    batch_number INTEGER NOT NULL,
+    finished_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (query_id, batch_number)
 );
 
-create table predictions (
-    tweet_id text not null references tweets (id),
-    model_version text not null,
-    metadata_version text not null,
-    question_version text not null,
-    p_bot double precision not null,
-    raw jsonb not null,
-    created_at timestamptz not null default now(),
-    primary key (tweet_id, model_version, metadata_version, question_version)
+CREATE TABLE predictions (
+    tweet_id TEXT NOT NULL REFERENCES tweets (id),
+    model_version TEXT NOT NULL,
+    metadata_version TEXT NOT NULL,
+    question_version TEXT NOT NULL,
+    p_bot DOUBLE PRECISION NOT NULL,
+    raw JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tweet_id, model_version, metadata_version, question_version)
 );

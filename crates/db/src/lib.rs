@@ -21,15 +21,15 @@ pub struct ResultTweet {
 }
 
 pub async fn ping<'e>(db: impl PgExecutor<'e>) -> Result<(), Error> {
-    sqlx::query!("select 1 as ok").fetch_one(db).await?;
+    sqlx::query!("SELECT 1 AS ok").fetch_one(db).await?;
     Ok(())
 }
 
 pub async fn insert_query<'e>(db: impl PgExecutor<'e>, text: &str) -> Result<Query, Error> {
     sqlx::query_as!(
         Query,
-        r#"insert into queries (id, text) values ($1, $2)
-        returning id, text, status as "status: QueryStatus", error, batch_count, created_at, updated_at"#,
+        r#"INSERT INTO queries (id, text) VALUES ($1, $2)
+        RETURNING id, text, status AS "status: QueryStatus", error, batch_count, created_at, updated_at"#,
         Uuid::new_v4(),
         text
     )
@@ -40,8 +40,8 @@ pub async fn insert_query<'e>(db: impl PgExecutor<'e>, text: &str) -> Result<Que
 pub async fn fetch_query<'e>(db: impl PgExecutor<'e>, id: Uuid) -> Result<Option<Query>, Error> {
     sqlx::query_as!(
         Query,
-        r#"select id, text, status as "status: QueryStatus", error, batch_count, created_at, updated_at
-        from queries where id = $1"#,
+        r#"SELECT id, text, status AS "status: QueryStatus", error, batch_count, created_at, updated_at
+        FROM queries WHERE id = $1"#,
         id
     )
     .fetch_optional(db)
@@ -64,8 +64,8 @@ pub async fn set_status<'e>(
         Failed => &[Queued, Scraping, Classifying],
     };
     let result = sqlx::query!(
-        "update queries set status = $2, error = $3, updated_at = now()
-        where id = $1 and status = any($4::query_status[])",
+        "UPDATE queries SET status = $2, error = $3, updated_at = NOW()
+        WHERE id = $1 AND status = ANY($4::query_status[])",
         id,
         status as QueryStatus,
         error,
@@ -78,10 +78,10 @@ pub async fn set_status<'e>(
 
 pub async fn upsert_account<'e>(db: impl PgExecutor<'e>, account: &Account) -> Result<u64, Error> {
     let result = sqlx::query!(
-        "insert into accounts (id, handle, raw) values ($1, $2, $3)
-        on conflict (id) do update
-        set handle = excluded.handle, raw = excluded.raw, updated_at = now()
-        where (accounts.handle, accounts.raw) is distinct from (excluded.handle, excluded.raw)",
+        "INSERT INTO accounts (id, handle, raw) VALUES ($1, $2, $3)
+        ON CONFLICT (id) DO UPDATE
+        SET handle = EXCLUDED.handle, raw = EXCLUDED.raw, updated_at = NOW()
+        WHERE (accounts.handle, accounts.raw) IS DISTINCT FROM (EXCLUDED.handle, EXCLUDED.raw)",
         account.id,
         account.handle,
         account.raw
@@ -93,12 +93,12 @@ pub async fn upsert_account<'e>(db: impl PgExecutor<'e>, account: &Account) -> R
 
 pub async fn upsert_tweet<'e>(db: impl PgExecutor<'e>, tweet: &Tweet) -> Result<u64, Error> {
     let result = sqlx::query!(
-        "insert into tweets (id, account_id, text, posted_at, raw) values ($1, $2, $3, $4, $5)
-        on conflict (id) do update
-        set account_id = excluded.account_id, text = excluded.text,
-            posted_at = excluded.posted_at, raw = excluded.raw, updated_at = now()
-        where (tweets.account_id, tweets.text, tweets.posted_at, tweets.raw)
-            is distinct from (excluded.account_id, excluded.text, excluded.posted_at, excluded.raw)",
+        "INSERT INTO tweets (id, account_id, text, posted_at, raw) VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (id) DO UPDATE
+        SET account_id = EXCLUDED.account_id, text = EXCLUDED.text,
+            posted_at = EXCLUDED.posted_at, raw = EXCLUDED.raw, updated_at = NOW()
+        WHERE (tweets.account_id, tweets.text, tweets.posted_at, tweets.raw)
+            IS DISTINCT FROM (EXCLUDED.account_id, EXCLUDED.text, EXCLUDED.posted_at, EXCLUDED.raw)",
         tweet.id,
         tweet.account_id,
         tweet.text,
@@ -116,7 +116,7 @@ pub async fn upsert_query_tweet<'e>(
     tweet_id: &str,
 ) -> Result<u64, Error> {
     let result = sqlx::query!(
-        "insert into query_tweets (query_id, tweet_id) values ($1, $2) on conflict do nothing",
+        "INSERT INTO query_tweets (query_id, tweet_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
         query_id,
         tweet_id
     )
@@ -131,7 +131,7 @@ pub async fn upsert_query_batch<'e>(
     batch_number: i32,
 ) -> Result<u64, Error> {
     let result = sqlx::query!(
-        "insert into query_batches (query_id, batch_number) values ($1, $2) on conflict do nothing",
+        "INSERT INTO query_batches (query_id, batch_number) VALUES ($1, $2) ON CONFLICT DO NOTHING",
         query_id,
         batch_number
     )
@@ -145,12 +145,12 @@ pub async fn upsert_prediction<'e>(
     prediction: &Prediction,
 ) -> Result<u64, Error> {
     let result = sqlx::query!(
-        "insert into predictions
+        "INSERT INTO predictions
             (tweet_id, model_version, metadata_version, question_version, p_bot, raw)
-        values ($1, $2, $3, $4, $5, $6)
-        on conflict (tweet_id, model_version, metadata_version, question_version) do update
-        set p_bot = excluded.p_bot, raw = excluded.raw
-        where (predictions.p_bot, predictions.raw) is distinct from (excluded.p_bot, excluded.raw)",
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (tweet_id, model_version, metadata_version, question_version) DO UPDATE
+        SET p_bot = EXCLUDED.p_bot, raw = EXCLUDED.raw
+        WHERE (predictions.p_bot, predictions.raw) IS DISTINCT FROM (EXCLUDED.p_bot, EXCLUDED.raw)",
         prediction.tweet_id,
         &prediction.model_version as &ModelVersion,
         &prediction.metadata_version as &MetadataVersion,
@@ -172,17 +172,17 @@ pub async fn result_page<'e>(
     limit: i64,
 ) -> Result<Vec<ResultTweet>, Error> {
     let rows = sqlx::query!(
-        r#"select t.id, t.account_id, t.text, t.posted_at, t.raw,
-            a.handle, a.raw as account_raw,
-            p.p_bot as "p_bot?", p.raw as "prediction_raw?"
-        from query_tweets qt
-        join tweets t on t.id = qt.tweet_id
-        join accounts a on a.id = t.account_id
-        left join predictions p on p.tweet_id = t.id
-            and p.model_version = $2 and p.metadata_version = $3 and p.question_version = $4
-        where qt.query_id = $1 and ($5::text is null or t.id > $5)
-        order by t.id
-        limit $6"#,
+        r#"SELECT t.id, t.account_id, t.text, t.posted_at, t.raw,
+            a.handle, a.raw AS account_raw,
+            p.p_bot AS "p_bot?", p.raw AS "prediction_raw?"
+        FROM query_tweets qt
+        JOIN tweets t ON t.id = qt.tweet_id
+        JOIN accounts a ON a.id = t.account_id
+        LEFT JOIN predictions p ON p.tweet_id = t.id
+            AND p.model_version = $2 AND p.metadata_version = $3 AND p.question_version = $4
+        WHERE qt.query_id = $1 AND ($5::TEXT IS NULL OR t.id > $5)
+        ORDER BY t.id
+        LIMIT $6"#,
         query_id,
         &versions.model as &ModelVersion,
         &versions.metadata as &MetadataVersion,

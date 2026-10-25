@@ -34,6 +34,11 @@ Postgres applies a status change only from the statuses this table allows. Any o
 
 `done` and `failed` are final. Nothing moves a query out of them.
 
+## SQL style
+
+- You write SQL keywords, functions, and type names in capitals: `SELECT`, `ON CONFLICT`, `NOW()`, `ANY()`, `TIMESTAMPTZ`.
+- You write table names, column names, aliases, and enum values in lower case.
+
 ## Configuration
 
 | Variable | Default | Meaning |

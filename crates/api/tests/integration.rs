@@ -184,7 +184,7 @@ async fn missing_queue_returns_503_and_fails_the_query(pool: PgPool) {
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(body["code"], "queue_unavailable");
 
-    let id = sqlx::query_scalar::<_, Uuid>("select id from queries")
+    let id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM queries")
         .fetch_one(&pool)
         .await
         .unwrap();
