@@ -1,0 +1,128 @@
+{
+  "title": "Real Feel",
+  "description": "Request rate and error rate of the API, SQS queue depth, and the time from queued to done.",
+  "layout_type": "ordered",
+  "reflow_type": "fixed",
+  "widgets": [
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Request rate (requests per second)",
+        "show_legend": false,
+        "requests": [
+          {
+            "formulas": [{ "formula": "per_second(query1)" }],
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "sum:trace.http.server.request.hits{service:api}.as_count()"
+              }
+            ],
+            "response_format": "timeseries",
+            "display_type": "bars"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Error rate (share of requests)",
+        "show_legend": false,
+        "yaxis": { "min": "0", "max": "1" },
+        "requests": [
+          {
+            "formulas": [{ "formula": "errors / hits" }],
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "errors",
+                "query": "sum:trace.http.server.request.errors{service:api}.as_count()"
+              },
+              {
+                "data_source": "metrics",
+                "name": "hits",
+                "query": "sum:trace.http.server.request.hits{service:api}.as_count()"
+              }
+            ],
+            "response_format": "timeseries",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Queue depth (messages visible)",
+        "show_legend": true,
+        "legend_layout": "auto",
+        "requests": [
+          {
+            "formulas": [
+              { "formula": "scraper_jobs", "alias": "scraper-jobs" },
+              { "formula": "scraper_jobs_dlq", "alias": "scraper-jobs-dlq" },
+              { "formula": "classifier_jobs", "alias": "classifier-jobs" },
+              { "formula": "classifier_jobs_dlq", "alias": "classifier-jobs-dlq" }
+            ],
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "scraper_jobs",
+                "query": "max:aws.sqs.approximate_number_of_messages_visible{queuename:scraper-jobs}"
+              },
+              {
+                "data_source": "metrics",
+                "name": "scraper_jobs_dlq",
+                "query": "max:aws.sqs.approximate_number_of_messages_visible{queuename:scraper-jobs-dlq}"
+              },
+              {
+                "data_source": "metrics",
+                "name": "classifier_jobs",
+                "query": "max:aws.sqs.approximate_number_of_messages_visible{queuename:classifier-jobs}"
+              },
+              {
+                "data_source": "metrics",
+                "name": "classifier_jobs_dlq",
+                "query": "max:aws.sqs.approximate_number_of_messages_visible{queuename:classifier-jobs-dlq}"
+              }
+            ],
+            "response_format": "timeseries",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Time from queued to done (ms)",
+        "show_legend": true,
+        "legend_layout": "auto",
+        "requests": [
+          {
+            "formulas": [
+              { "formula": "p50", "alias": "p50" },
+              { "formula": "p95", "alias": "p95" }
+            ],
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "p50",
+                "query": "p50:real_feel.queued_to_done_ms{*}"
+              },
+              {
+                "data_source": "metrics",
+                "name": "p95",
+                "query": "p95:real_feel.queued_to_done_ms{*}"
+              }
+            ],
+            "response_format": "timeseries",
+            "display_type": "line"
+          }
+        ]
+      }
+    }
+  ]
+}
