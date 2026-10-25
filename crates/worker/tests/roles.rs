@@ -261,6 +261,24 @@ async fn a_duplicated_classifier_job_changes_nothing() {
 }
 
 #[tokio::test]
+async fn two_classifier_workers_on_the_last_two_batches_at_once_end_done() {
+    let stack = Stack::create().await;
+    let first = stack.classifier_role(FakeClassifier::new(0.5, 0)).await;
+    let second = stack.classifier_role(FakeClassifier::new(0.5, 0)).await;
+    for _ in 0..5 {
+        let (query_id, jobs) = stack.classifying_query().await;
+        first.handle(&jobs[0]).await.unwrap();
+        let (a, b) = tokio::join!(first.handle(&jobs[1]), second.handle(&jobs[2]));
+        a.unwrap();
+        b.unwrap();
+
+        assert_eq!(stack.status(query_id).await, QueryStatus::Done);
+        assert_eq!(stack.batch_rows(query_id).await, 3);
+    }
+    stack.delete().await;
+}
+
+#[tokio::test]
 async fn a_scraper_job_redelivered_after_classifying_still_ends_done() {
     let stack = Stack::create().await;
     let (query_id, jobs) = stack.classifying_query().await;

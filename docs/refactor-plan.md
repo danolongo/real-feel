@@ -462,7 +462,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 - [x] **2.8** `crates/worker`: You add the [failure flow](#failure-flow), the job deadline, and the dead-letter queue reader. A fake classifier that fails N times proves the retry and the DLQ. The tests create their own queues with a 1-second visibility timeout and `maxReceiveCount` 5.
 - [x] **2.9** You add the `e2e` job to `ci.yml`. The test sits in `crates/worker/tests/e2e.rs` behind an `e2e` feature. Docker Compose runs Postgres and LocalStack. The test starts the API router and both worker roles in one process, with the fixture scraper and the fake classifier. A fixture of 5 tweets and `BATCH_SIZE=2` give 3 batches. The test polls `GET /queries/{id}` until the status is `done`.
 - [x] **2.10** You add `nightly.yml` with a contract test against the hosted backend. It reads `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from GitHub secrets. It sends one fixed model input and asserts one bot probability from 0 to 1. A failure fails the workflow, and GitHub emails you.
-- [ ] **2.11** You write `scripts/smoke.sh`. It sends one real query through twitterapi.io and the hosted backend on your machine. It passes when the status is `done`, the result holds at least 10 tweets, and every tweet has a prediction.
+- [x] **2.11** You write `scripts/smoke.sh`. It sends one real query through twitterapi.io and the hosted backend on your machine. It passes when the status is `done`, the result holds at least 10 tweets, and every tweet has a prediction.
 - [x] **2.12** `crates/api` and `crates/db`: You add [query reuse](#query-reuse) to `POST /queries`. A migration adds an index on `LOWER(text)` and `created_at`. Tests cover a match, a match while the earlier query runs, a `failed` earlier query, an earlier query older than `QUERY_REUSE_SECS`, and two identical requests sent at once.
 
 **Docs:** a `README.md` for `scraper`, `metadata`, `classifier`, `worker`. The `metadata` README defines `v1` field by field. You write `docs/reports/smoke-m2.md` with the query text, the tweet count, the batch count, and the run time.
@@ -470,14 +470,14 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 **Gate**
 
 - [ ] The e2e test passes in CI: `POST /queries` leads to status `done` with predictions for every tweet.
-- [ ] A test shows a failing job reaching the DLQ and the query status becoming `failed`.
-- [ ] A test shows a duplicated classifier job producing no duplicate predictions and no extra `query_batches` row.
-- [ ] A test runs two classifier workers on the last two batches at once. The query ends with status `done`.
-- [ ] A test redelivers a scraper job after the status reaches `classifying`. The query still ends with status `done`, with one `query_batches` row for each batch.
-- [ ] A test leaves a job in the dead-letter queue without a `failed` status. The dead-letter queue reader sets the status to `failed`.
-- [ ] A test with zero scraped tweets ends with status `done`.
-- [ ] A test sends two identical queries at once. Both get one query ID, and SQS holds one scraper job.
-- [ ] `scripts/smoke.sh` completes one real query. The smoke report records it.
+- [x] A test shows a failing job reaching the DLQ and the query status becoming `failed`.
+- [x] A test shows a duplicated classifier job producing no duplicate predictions and no extra `query_batches` row.
+- [x] A test runs two classifier workers on the last two batches at once. The query ends with status `done`.
+- [x] A test redelivers a scraper job after the status reaches `classifying`. The query still ends with status `done`, with one `query_batches` row for each batch.
+- [x] A test leaves a job in the dead-letter queue without a `failed` status. The dead-letter queue reader sets the status to `failed`.
+- [x] A test with zero scraped tweets ends with status `done`.
+- [x] A test sends two identical queries at once. Both get one query ID, and SQS holds one scraper job.
+- [x] `scripts/smoke.sh` completes one real query. The smoke report records it.
 - [x] A decision record settles O1. O2 moves to M8 with the embeddings.
 
 ---
