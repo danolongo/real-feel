@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use sqlx::{PgExecutor, migrate::Migrator};
 use types::{
     Account, MetadataVersion, ModelVersion, Prediction, Query, QueryStatus, QuestionVersion, Tweet,
@@ -35,6 +37,51 @@ pub async fn insert_query<'e>(db: impl PgExecutor<'e>, text: &str) -> Result<Que
     )
     .fetch_one(db)
     .await
+}
+
+pub enum CreatedQuery {
+    New(Query),
+    Reused(Query),
+}
+
+/// Returns the newest query younger than `reuse_window` with the same lower-cased text that has
+/// not failed. Otherwise inserts a new query. The advisory lock gives two identical queries sent
+/// at once one query. A zero `reuse_window` always inserts.
+pub async fn create_or_reuse_query(
+    pool: &PgPool,
+    text: &str,
+    reuse_window: Duration,
+) -> Result<CreatedQuery, Error> {
+    if reuse_window.is_zero() {
+        return insert_query(pool, text).await.map(CreatedQuery::New);
+    }
+    let mut tx = pool.begin().await?;
+    sqlx::query!(
+        r#"SELECT 1 AS "locked!" FROM PG_ADVISORY_XACT_LOCK(HASHTEXTEXTENDED(LOWER($1), 0))"#,
+        text
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    let earlier = sqlx::query_as!(
+        Query,
+        r#"SELECT id, text, status AS "status: QueryStatus", error, batch_count, created_at, updated_at
+        FROM queries
+        WHERE LOWER(text) = LOWER($1)
+            AND status <> 'failed'
+            AND created_at > NOW() - MAKE_INTERVAL(secs => $2)
+        ORDER BY created_at DESC
+        LIMIT 1"#,
+        text,
+        reuse_window.as_secs_f64()
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let query = match earlier {
+        Some(query) => CreatedQuery::Reused(query),
+        None => CreatedQuery::New(insert_query(&mut *tx, text).await?),
+    };
+    tx.commit().await?;
+    Ok(query)
 }
 
 pub async fn fetch_query<'e>(db: impl PgExecutor<'e>, id: Uuid) -> Result<Option<Query>, Error> {

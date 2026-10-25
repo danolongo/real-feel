@@ -1,8 +1,8 @@
 #![cfg(feature = "integration")]
 
-use db::{PgPool, Versions};
+use db::{CreatedQuery, PgPool, Versions};
 use serde_json::json;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::Barrier;
 use types::{
     Account, MetadataVersion, ModelVersion, Prediction, QueryStatus, QuestionVersion, Tweet,
@@ -401,4 +401,92 @@ async fn finishing_every_batch_before_the_batch_count_leaves_the_status(pool: Pg
     let query = db::fetch_query(&pool, id).await.unwrap().unwrap();
     assert_eq!(query.status, QueryStatus::Scraping);
     assert_eq!(batch_rows(&pool, id).await, 2);
+}
+
+const HOUR: Duration = Duration::from_secs(3600);
+
+async fn create(pool: &PgPool, text: &str, reuse_window: Duration) -> (Uuid, bool) {
+    match db::create_or_reuse_query(pool, text, reuse_window)
+        .await
+        .unwrap()
+    {
+        CreatedQuery::New(query) => (query.id, false),
+        CreatedQuery::Reused(query) => (query.id, true),
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_query_with_the_same_text_reuses_the_earlier_query(pool: PgPool) {
+    let (first, _) = create(&pool, "Bots on X", HOUR).await;
+    assert_eq!(create(&pool, "bots ON x", HOUR).await, (first, true));
+    assert!(!create(&pool, "bots on y", HOUR).await.1);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_query_in_progress_is_reused(pool: PgPool) {
+    let (first, _) = create(&pool, "q", HOUR).await;
+    assert!(
+        db::set_status(&pool, first, QueryStatus::Scraping, None)
+            .await
+            .unwrap()
+    );
+    assert_eq!(create(&pool, "q", HOUR).await, (first, true));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_failed_query_is_not_reused(pool: PgPool) {
+    let (first, _) = create(&pool, "q", HOUR).await;
+    assert!(
+        db::set_status(&pool, first, QueryStatus::Failed, Some("x"))
+            .await
+            .unwrap()
+    );
+    let (second, reused) = create(&pool, "q", HOUR).await;
+    assert!(!reused);
+    assert_ne!(second, first);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_query_older_than_the_window_is_not_reused(pool: PgPool) {
+    let (first, _) = create(&pool, "q", HOUR).await;
+    sqlx::query!(
+        "UPDATE queries SET created_at = NOW() - INTERVAL '2 hours' WHERE id = $1",
+        first
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(!create(&pool, "q", HOUR).await.1);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_zero_window_always_creates_a_query(pool: PgPool) {
+    let (first, _) = create(&pool, "q", Duration::ZERO).await;
+    let (second, reused) = create(&pool, "q", Duration::ZERO).await;
+    assert!(!reused);
+    assert_ne!(second, first);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn two_identical_queries_at_once_get_one_query(pool: PgPool) {
+    let barrier = Arc::new(Barrier::new(2));
+    let tasks: Vec<_> = (0..2)
+        .map(|_| {
+            let (pool, barrier) = (pool.clone(), barrier.clone());
+            tokio::spawn(async move {
+                barrier.wait().await;
+                create(&pool, "q", HOUR).await.0
+            })
+        })
+        .collect();
+    let mut ids = Vec::new();
+    for task in tasks {
+        ids.push(task.await.unwrap());
+    }
+    assert_eq!(ids[0], ids[1]);
+    let rows = sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM queries"#)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rows, 1);
 }

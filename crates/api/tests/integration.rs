@@ -1,6 +1,6 @@
 #![cfg(feature = "integration")]
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use api::{AppState, router};
 use aws_sdk_sqs::Client;
@@ -65,6 +65,7 @@ async fn app(pool: PgPool, queue_url: &str) -> Router {
         db: pool,
         queue: Queue::connect(queue_url).await,
         versions: Arc::new(versions("m1")),
+        query_reuse: Duration::from_secs(3600),
     })
 }
 
@@ -268,4 +269,27 @@ async fn ready_returns_503_when_the_queue_is_missing(pool: PgPool) {
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     let (status, _) = call(&app, get("/health")).await;
     assert_eq!(status, StatusCode::OK);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn two_identical_queries_at_once_share_one_query_and_one_scraper_job(pool: PgPool) {
+    let test_queue = TestQueue::create().await;
+    let app = app(pool.clone(), &test_queue.url).await;
+
+    let ((first_status, first), (second_status, second)) = tokio::join!(
+        call(&app, post("Same question")),
+        call(&app, post("  same QUESTION "))
+    );
+    assert_eq!(first_status, StatusCode::ACCEPTED);
+    assert_eq!(second_status, StatusCode::ACCEPTED);
+    assert_eq!(first["query_id"], second["query_id"]);
+
+    let queue = Queue::connect(&test_queue.url).await;
+    let mut jobs = 0;
+    for _ in 0..3 {
+        jobs += queue.receive::<ScraperJob>(1).await.unwrap().len();
+    }
+    assert_eq!(jobs, 1);
+
+    test_queue.delete().await;
 }

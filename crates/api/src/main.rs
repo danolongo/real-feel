@@ -12,6 +12,7 @@ struct Config {
     database_url: String,
     scraper_queue_url: String,
     versions: Versions,
+    query_reuse: Duration,
 }
 
 impl Config {
@@ -21,6 +22,12 @@ impl Config {
             addr: std::env::var("API_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string()),
             database_url: var("DATABASE_URL")?,
             scraper_queue_url: var("SCRAPER_QUEUE_URL")?,
+            query_reuse: Duration::from_secs(match std::env::var("QUERY_REUSE_SECS") {
+                Ok(secs) => secs
+                    .parse()
+                    .map_err(|_| format!("QUERY_REUSE_SECS is not a number: {secs}"))?,
+                Err(_) => 3600,
+            }),
             versions: Versions {
                 model: ModelVersion(var("DEFAULT_MODEL_VERSION")?),
                 metadata: MetadataVersion(var("DEFAULT_METADATA_VERSION")?),
@@ -42,6 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?,
         queue: Queue::connect(config.scraper_queue_url).await,
         versions: Arc::new(config.versions),
+        query_reuse: config.query_reuse,
     };
 
     let listener = TcpListener::bind(&config.addr).await?;

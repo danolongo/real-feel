@@ -106,6 +106,7 @@ async fn a_query_over_http_ends_done_with_a_prediction_for_every_tweet() {
             metadata: MetadataVersion("v1".into()),
             question: QuestionVersion("v1".into()),
         }),
+        query_reuse: Duration::ZERO,
     });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());

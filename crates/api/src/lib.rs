@@ -1,6 +1,6 @@
 mod error;
 
-use std::{error::Error, sync::Arc};
+use std::{error::Error, sync::Arc, time::Duration};
 
 use axum::{
     Json, Router,
@@ -12,7 +12,7 @@ use axum::{
     routing::get,
 };
 use chrono::{DateTime, Utc};
-use db::{PgPool, ResultTweet, Versions};
+use db::{CreatedQuery, PgPool, ResultTweet, Versions};
 use queue::Queue;
 use serde::{Deserialize, Serialize};
 use types::{QueryStatus, ScraperJob};
@@ -29,6 +29,7 @@ pub struct AppState {
     pub db: PgPool,
     pub queue: Queue,
     pub versions: Arc<Versions>,
+    pub query_reuse: Duration,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -61,7 +62,12 @@ async fn create_query(
         return Err(ApiError::InvalidQuery);
     }
 
-    let query = db::insert_query(&state.db, text).await?;
+    let query = match db::create_or_reuse_query(&state.db, text, state.query_reuse).await? {
+        CreatedQuery::Reused(query) => {
+            return Ok((StatusCode::ACCEPTED, Json(Created { query_id: query.id })));
+        }
+        CreatedQuery::New(query) => query,
+    };
     let job = ScraperJob {
         query_id: query.id,
         trace_context: None,
@@ -221,6 +227,7 @@ mod tests {
                 metadata: MetadataVersion("v1".into()),
                 question: QuestionVersion("v1".into()),
             }),
+            query_reuse: Duration::ZERO,
         };
         router(state)
     }
