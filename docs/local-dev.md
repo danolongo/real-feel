@@ -47,6 +47,52 @@ This file takes you from a clean machine to a running stack. Run every command f
 
 `docker compose down` stops the containers. Add `-v` to delete the data too.
 
+## Run the tests
+
+Unit tests need no Docker.
+
+```bash
+cargo test --workspace
+```
+
+Integration tests need the stack from step 2 and the variables in `.env.example`. Crates with integration tests declare the `integration` feature.
+
+1. Export the variables from `.env`. Set `DATABASE_URL` with your `POSTGRES_PASSWORD`.
+
+   ```bash
+   set -a; source .env; set +a
+   ```
+
+2. Apply the migrations.
+
+   ```bash
+   sqlx migrate run --source crates/db/migrations
+   ```
+
+3. Run the integration tests of one crate.
+
+   ```bash
+   cargo test -p db --features integration
+   ```
+
+CI runs the integration tests of every crate that declares the feature.
+
+## Refresh the sqlx offline data
+
+The `sqlx` macros read `.sqlx/` when `SQLX_OFFLINE=true`. You refresh `.sqlx/` after you change a SQL query. Install `sqlx-cli` once.
+
+```bash
+cargo install sqlx-cli --version 0.9.0 --locked --no-default-features --features rustls,postgres
+```
+
+With the stack running and the migrations applied, refresh the data and commit `.sqlx/`.
+
+```bash
+cargo sqlx prepare --workspace
+```
+
+CI runs `cargo sqlx prepare --workspace --check` and fails when `.sqlx/` is stale.
+
 ## Run the CI checks
 
 ```bash
