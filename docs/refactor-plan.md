@@ -427,6 +427,7 @@ Postgres applies a status change only from the statuses this table allows. Any o
 |----------|---------|---------|
 | `SCRAPER` | `firecrawl` | worker: `firecrawl` or `fixture` |
 | `FIRECRAWL_URL` | `http://localhost:3002` | scraper |
+| `FIXTURE_PATH` | `crates/scraper/fixtures/default.json` | worker, with `SCRAPER=fixture` |
 | `CLASSIFIER` | `hosted` | worker: `hosted` or `fake` |
 | `EMBEDDER` | `hosted` | worker: `hosted` or `fake` |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | none | classifier, embedder |
