@@ -8,7 +8,7 @@ pub enum Error {
     UnknownQuestionVersion(String),
 }
 
-const QUESTION_V1: &str = "Is the account behind this tweet a bot or a human?";
+const QUESTION_V1: &str = "Is the account behind this tweet a bot?";
 
 /// Builds the model input for one tweet. The same inputs always give the same model input.
 pub fn build(

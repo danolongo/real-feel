@@ -33,7 +33,7 @@ See [glossary.md](../../docs/glossary.md): tweet, account, metadata, metadata ve
 
 | Field | Value |
 |-------|-------|
-| `question` | `Is the account behind this tweet a bot or a human?` |
+| `question` | `Is the account behind this tweet a bot?` |
 | `question_version` | `v1`. |
 
 ## Test it
