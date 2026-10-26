@@ -548,7 +548,7 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 
 **Tasks**
 
-- [ ] **4.1** `crates/types`, `crates/classifier`, `crates/worker`, `crates/db`: You widen the model input contract before any new version exists.
+- [x] **4.1** `crates/types`, `crates/classifier`, `crates/worker`, `crates/db`: You widen the model input contract before any new version exists.
   - `ModelInput` holds `state` and `questions`. `state` is a JSON value: a string or an object. Each question has an ID and its `instructions`.
   - `metadata::build` takes the tweet, its account, and the account's recent tweets.
   - The hosted backend sends every question in one request and reads every answer.
@@ -561,26 +561,26 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
   - The label agent then writes labels for 300 to 500 items. You review a random 10% of them and record your agreement rate in the eval report.
   - The eval report says that an LLM wrote the labels. The agreement rate bounds every accuracy number in it.
 - [ ] **4.4** You store the eval set. A private S3 bucket holds it, because it holds X content. Terraform creates the bucket. The repository stores only a manifest with the checksum and the item count. `eval` reads a local copy that you download with `aws s3 cp`, so CI never needs AWS access.
-- [ ] **4.5** You split the eval set by account with a fixed seed: 30% into the tune split and 70% into the test split. Every experiment uses the same splits, so experiments compare fairly. The bot threshold comes from the tune split only. Every comparison in the eval report uses the test split only.
-- [ ] **4.6** `crates/metadata`: You write more metadata versions. Each one tests one group of the signals that you use when you assign a label:
+- [x] **4.5** You split the eval set by account with a fixed seed: 30% into the tune split and 70% into the test split. Every experiment uses the same splits, so experiments compare fairly. The bot threshold comes from the tune split only. Every comparison in the eval report uses the test split only.
+- [x] **4.6** `crates/metadata`: You write more metadata versions. Each one tests one group of the signals that you use when you assign a label:
   - `v2`: `v1` plus account age, follower count, following count, tweet count, favourites count, media count, blue check, and X's automated label
   - `v3`: `v2` plus rates: tweets per day, favourites per day, and followers per following
   - `v4`: `v3` plus the recent tweets: their posting hours, the median gap between them, and the share with duplicate text
   - `v5`: `v4` plus the name, bio, website, and location
   Each version gets a field-by-field definition in the README and its own unit tests. `v2` and later send `state` as one JSON object. `build` computes the account age at the time of the tweet, so it never reads the clock.
-- [ ] **4.7** `crates/metadata`: You write question versions that word the bot question in different ways.
+- [x] **4.7** `crates/metadata`: You write question versions that word the bot question in different ways.
   - Clef-flash takes no system prompt and no sampling settings. A request holds `model`, `state`, `questions`, and optional `images`.
   - Each question carries its own `instructions`. A `choice` question and a `score` question also take `criteria`. These fields are the prompt.
   - One request takes up to 64 questions. The bot question and the LLM-writing question of task 4.14 share one request.
   - One question version names agent accounts in its wording: accounts that an LLM runs and that write their own tweets.
-- [ ] **4.8** `crates/db`: A migration adds the `experiments` table and the `experiment_results` table. `experiments` holds the run ID, the versions, the eval set checksum, the seed, and the repeat count. `experiment_results` holds one row for each item and repeat. These tables have no foreign key to `tweets` or `predictions`, so an experiment never touches production rows.
-- [ ] **4.9** `crates/eval`: You build the `eval` binary. `eval experiment --backend hosted|fake --metadata-version … --question-version …` runs one experiment on one eval set file. The eval unit is one account: the classifier scores the tweet that matched the query, with the recent tweets as metadata. The binary prints the expected Cloudflare cost before it calls the hosted backend, and asks you to confirm. `crates/eval/README.md` records the price that the estimate uses.
-- [ ] **4.10** `crates/eval`: The binary computes accuracy, precision, recall, F1, ROC-AUC, Brier score, and expected calibration error. It computes the recall for `bot` items and for `agent` items apart. It stores ten reliability bins for each experiment. `eval report` writes an eval report that compares experiments and draws one calibration curve for each experiment as a Mermaid chart.
+- [x] **4.8** `crates/db`: A migration adds the `experiments` table and the `experiment_results` table. `experiments` holds the run ID, the versions, the eval set checksum, the seed, and the repeat count. `experiment_results` holds one row for each item and repeat. These tables have no foreign key to `tweets` or `predictions`, so an experiment never touches production rows.
+- [x] **4.9** `crates/eval`: You build the `eval` binary. `eval experiment --backend hosted|fake --metadata-version … --question-version …` runs one experiment on one eval set file. The eval unit is one account: the classifier scores the tweet that matched the query, with the recent tweets as metadata. The binary prints the expected Cloudflare cost before it calls the hosted backend, and asks you to confirm. `crates/eval/README.md` records the price that the estimate uses.
+- [x] **4.10** `crates/eval`: The binary computes accuracy, precision, recall, F1, ROC-AUC, Brier score, and expected calibration error. It computes the recall for `bot` items and for `agent` items apart. It stores ten reliability bins for each experiment. `eval report` writes an eval report that compares experiments and draws one calibration curve for each experiment as a Mermaid chart.
 - [ ] **4.11** You measure how repeatable Clef-flash is, before any comparison. You send each item of a 50-item sample 5 times with the same input and report the spread of `p_bot`. A wide spread limits every comparison in the eval report.
 - [ ] **4.12** You settle O4 from the tune split. You record the chosen bot threshold in a decision record. The API adds `is_bot` to the result. The `BOT_THRESHOLD` setting holds the threshold.
 - [ ] **4.13** You compare each metadata version's fields against the fields twitterapi.io returns. You list the gaps in the eval report. When the default metadata version needs recent tweets, the scraper fetches them in production, and the eval report gives the extra twitterapi.io cost for each query.
 - [ ] **4.14** You test whether LLM-written text raises `p_bot`. The live test scored a tweet with typical LLM phrasing and odd semicolon use at 0.14. The `is_llm_text` flag from task 4.3 marks the LLM-written tweets. A question version asks about LLM writing on its own, because a human can post LLM text and the bot question asks about the account.
-- [ ] **4.15** CI runs one experiment on a committed ten-item fixture eval set with the fake. The fixture holds both classes, so ROC-AUC and the calibration curve have real values.
+- [x] **4.15** CI runs one experiment on a committed ten-item fixture eval set with the fake. The fixture holds both classes, so ROC-AUC and the calibration curve have real values.
 - [ ] **4.16** You change `DEFAULT_METADATA_VERSION`, `DEFAULT_QUESTION_VERSION`, and `BOT_THRESHOLD` in the main configuration. You run `apply`, then `deploy.yml`. The API and the workers read the same values, so they change together.
 
 **Docs:** `crates/eval/README.md`, `crates/eval/LABELS.md`, `docs/reports/eval-m4.md`, decision records for O3 and O4 and the default metadata version.
