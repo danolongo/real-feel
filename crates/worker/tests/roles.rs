@@ -404,13 +404,18 @@ async fn the_dlq_reader_fails_a_query_that_the_worker_left_open() {
     let classifier_role = stack.classifier_role(FakeClassifier::new(0.5, 0)).await;
     assert_eq!(stack.status(query_id).await, QueryStatus::Classifying);
 
+    // Only the reader runs. The full role would also finish the batches on the jobs queue
+    // and set the query done first, and a done query never becomes failed.
     tokio::select! {
-        () = classifier_role.run() => {}
+        never = classifier_role.context.read_dlq::<ClassifierJob>() => match never {},
         () = stack.wait_for(query_id, QueryStatus::Failed) => {}
     }
 
     let query = db::fetch_query(&stack.db, query_id).await.unwrap().unwrap();
-    assert!(query.error.is_some());
+    assert_eq!(
+        query.error.as_deref(),
+        Some("the job reached the dead-letter queue")
+    );
     stack.delete().await;
 }
 
