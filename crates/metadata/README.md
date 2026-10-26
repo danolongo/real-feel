@@ -87,6 +87,10 @@ Two texts are equal when they match after `build` lowercases them, collapses whi
 | `account.website` | `account.raw.profile_bio.entities.url.urls[0].expanded_url` | The website in the profile. |
 | `account.location` | `account.raw.location` | The location in the profile. |
 
+### Metadata version `v6`
+
+`v6` is `v3` plus the four profile keys of `v5`. It holds no `recent_tweets`. The search result carries every key of `v6`, so `v6` needs no call to twitterapi.io beyond the search.
+
 ### Question version `v1`
 
 | Question ID | Instructions |
@@ -128,5 +132,5 @@ The tests need no network access and no Docker.
 
 | Error | Cause | What you do |
 |-------|-------|-------------|
-| `UnknownMetadataVersion` | The metadata version is not `v1` to `v5`. | Add the version to `build`, or fix the caller. |
+| `UnknownMetadataVersion` | The metadata version is not `v1` to `v6`. | Add the version to `build`, or fix the caller. |
 | `UnknownQuestionVersion` | The question version is not `v1` to `v4`. | Add the version to `build`, or fix the caller. |

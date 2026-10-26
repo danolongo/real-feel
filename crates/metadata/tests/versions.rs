@@ -112,6 +112,12 @@ fn v5_state() -> Value {
     state
 }
 
+fn v6_state() -> Value {
+    let mut state = v5_state();
+    state.as_object_mut().unwrap().remove("recent_tweets");
+    state
+}
+
 #[test]
 fn v2_state_is_exact() {
     assert_eq!(run("v2", "v1", &account(), &[]).state, v2_state());
@@ -133,8 +139,13 @@ fn v5_state_is_exact() {
 }
 
 #[test]
-fn v2_and_v3_ignore_the_recent_tweets() {
-    for version in ["v2", "v3"] {
+fn v6_state_is_exact() {
+    assert_eq!(run("v6", "v1", &account(), &recent()).state, v6_state());
+}
+
+#[test]
+fn v2_v3_and_v6_ignore_the_recent_tweets() {
+    for version in ["v2", "v3", "v6"] {
         assert_eq!(
             run(version, "v1", &account(), &recent()),
             run(version, "v1", &account(), &[])
@@ -286,7 +297,7 @@ fn question_versions_hold_the_documented_questions() {
 
 #[test]
 fn every_metadata_version_works_with_every_question_version() {
-    for metadata in ["v1", "v2", "v3", "v4", "v5"] {
+    for metadata in ["v1", "v2", "v3", "v4", "v5", "v6"] {
         for question in ["v1", "v2", "v3", "v4"] {
             let input = run(metadata, question, &account(), &recent());
             assert_eq!(input.questions[0].id, "bot");

@@ -23,8 +23,16 @@ fn question(id: &str, instructions: &str) -> Question {
     }
 }
 
+fn layout(rates: bool, recent_tweets: bool, profile: bool) -> state::Layout {
+    state::Layout {
+        rates,
+        recent_tweets,
+        profile,
+    }
+}
+
 /// Builds the model input for one tweet. The same inputs always give the same model input.
-/// `recent_tweets` are the recent tweets of the account. Only `v4` and later read them.
+/// `recent_tweets` are the recent tweets of the account. Only `v4` and `v5` read them.
 pub fn build(
     tweet: &Tweet,
     account: &Account,
@@ -34,10 +42,11 @@ pub fn build(
 ) -> Result<ModelInput, Error> {
     let state = match metadata_version.0.as_str() {
         "v1" => Value::String(tweet.text.clone()),
-        "v2" => state::object(2, tweet, account, recent_tweets),
-        "v3" => state::object(3, tweet, account, recent_tweets),
-        "v4" => state::object(4, tweet, account, recent_tweets),
-        "v5" => state::object(5, tweet, account, recent_tweets),
+        "v2" => state::object(layout(false, false, false), tweet, account, recent_tweets),
+        "v3" => state::object(layout(true, false, false), tweet, account, recent_tweets),
+        "v4" => state::object(layout(true, true, false), tweet, account, recent_tweets),
+        "v5" => state::object(layout(true, true, true), tweet, account, recent_tweets),
+        "v6" => state::object(layout(true, false, true), tweet, account, recent_tweets),
         other => return Err(Error::UnknownMetadataVersion(other.into())),
     };
     let questions = match question_version.0.as_str() {

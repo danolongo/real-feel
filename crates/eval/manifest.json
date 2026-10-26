@@ -1,0 +1,9 @@
+{
+  "sha256": "8f80a5fb176903f5a0b352e646727077a3138ae2f01f05a9c46ee45255f542ab",
+  "items": 404,
+  "labels": {
+    "human": 243,
+    "bot": 119,
+    "agent": 42
+  }
+}

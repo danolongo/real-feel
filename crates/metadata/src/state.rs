@@ -2,9 +2,16 @@ use chrono::{DateTime, Timelike, Utc};
 use serde_json::{Map, Value, json};
 use types::{Account, Tweet};
 
-/// Lays out the `state` of metadata version `v2` to `v5`. `level` is the number after the `v`.
+/// The keys that a metadata version adds to the `v2` layout.
+pub struct Layout {
+    pub rates: bool,
+    pub recent_tweets: bool,
+    pub profile: bool,
+}
+
+/// Lays out the `state` of metadata version `v2` to `v6`.
 /// Never reads the clock: the account age is the time between the join date and the tweet.
-pub fn object(level: u8, tweet: &Tweet, account: &Account, recent_tweets: &[Tweet]) -> Value {
+pub fn object(layout: Layout, tweet: &Tweet, account: &Account, recent_tweets: &[Tweet]) -> Value {
     let age_days = account_age_days(tweet, account);
     let mut account_fields = Map::new();
     account_fields.insert("age_days".into(), json!(age_days));
@@ -19,7 +26,7 @@ pub fn object(level: u8, tweet: &Tweet, account: &Account, recent_tweets: &[Twee
     );
     account_fields.insert("blue_check".into(), json!(account.is_verified));
     account_fields.insert("x_automated_label".into(), json!(account.is_automated));
-    if level >= 3 {
+    if layout.rates {
         account_fields.insert(
             "rates".into(),
             json!({
@@ -32,7 +39,7 @@ pub fn object(level: u8, tweet: &Tweet, account: &Account, recent_tweets: &[Twee
             }),
         );
     }
-    if level >= 5 {
+    if layout.profile {
         account_fields.insert("name".into(), json!(raw_str(&account.raw, &["name"])));
         account_fields.insert(
             "bio".into(),
@@ -60,7 +67,7 @@ pub fn object(level: u8, tweet: &Tweet, account: &Account, recent_tweets: &[Twee
     let mut state = Map::new();
     state.insert("tweet_text".into(), json!(tweet.text));
     state.insert("account".into(), Value::Object(account_fields));
-    if level >= 4 {
+    if layout.recent_tweets {
         state.insert("recent_tweets".into(), recent_summary(recent_tweets));
     }
     Value::Object(state)

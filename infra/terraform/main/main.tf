@@ -50,10 +50,12 @@ module "compute" {
     DD_SITE              = var.datadog_site
 
     DEFAULT_MODEL_VERSION    = "clef-flash-hosted"
-    DEFAULT_METADATA_VERSION = "v1"
-    DEFAULT_QUESTION_VERSION = "v1"
-    BOT_THRESHOLD            = "0.5"
-    BATCH_SIZE               = "25"
+    DEFAULT_METADATA_VERSION = "v6"
+    DEFAULT_QUESTION_VERSION = "v4"
+    # The best F1 on the tune split of the eval set.
+    BOT_THRESHOLD = "0.123"
+    # BOT_THRESHOLD = "0.173" # 0.123 plus a 0.05 margin for searches the eval set does not cover.
+    BATCH_SIZE = "25"
     # Stays below the 300 s visibility timeout of the queues.
     JOB_DEADLINE_SECS = "240"
   }
