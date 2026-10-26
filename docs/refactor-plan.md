@@ -529,12 +529,14 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 
 The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in M5.
 
+The stack runs only while you work on it. You run `terraform destroy` at the end of every work session and `apply` plus `deploy.yml` at the start of the next one. `infra/terraform/README.md` lists the steps.
+
 **Docs:** `infra/terraform/README.md`, plus a decision record for any change to D15 or D17.
 
 **Gate**
 
 - [x] A merge to `main` deploys new images with no manual steps.
-- [ ] One real query completes on AWS.
+- [x] One real query completes on AWS.
 - [ ] Datadog shows one trace that spans the API, the scraper worker, and the classifier worker.
 - [ ] `terraform destroy` followed by `terraform apply` and one `deploy.yml` run rebuilds the stack. You prove it once.
 - [ ] The AWS Budgets alert covers the new resources.
