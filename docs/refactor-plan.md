@@ -752,3 +752,8 @@ You plan each of these when M8 closes. Each becomes its own spike and decision r
 These items have no milestone yet.
 
 - **Salted API key hashes.** D18 stores each API key as a SHA-256 hash. A later change salts each hash and uses a slow algorithm such as bcrypt. A stolen `api_keys` table then costs an attacker far more work per key.
+- **Terraform in CI.** Today you run `terraform apply` from your machine. A later change moves it into GitHub Actions:
+  - Every PR runs `terraform plan` with a read-only role and posts the diff as a PR comment.
+  - A merge to `main` applies that plan. A protected GitHub Environment asks for approval before production.
+  - The apply role is a separate OIDC role that only `main` can assume.
+  - A scheduled `plan` reports drift from changes made in the AWS console.
