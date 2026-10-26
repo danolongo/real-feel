@@ -603,26 +603,37 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 **Tasks**
 
 - [ ] **5.1** `crates/db`: You add an `api_keys` table: an ID, a name, the SHA-256 hash of the key, a query quota per hour, the creation time, and the revocation time. The table never stores the key itself. `queries` gains an `api_key_id` column.
+  - `api_key_id` is nullable, with a foreign key to `api_keys`. Production already holds queries without a key, and a `NOT NULL` column would fail the migration at API startup.
+  - An index on `(api_key_id, created_at)` serves the hourly count of task 5.3.
 - [ ] **5.2** `crates/api`: You add API key authentication.
   - A client sends the key in the `Authorization: Bearer <key>` header.
   - The API hashes the key and looks up the hash. A missing, unknown, or revoked key gets `401`.
   - `GET /health` and `GET /ready` need no key, so the ALB can check them.
   - A new `api-key` binary creates and revokes keys. It prints each new key once.
+  - The `api` image holds `api-key` next to `api`. RDS accepts connections only from the API and worker security groups, so you run `api-key` with `docker exec` on the API instance, through an SSM session.
 - [ ] **5.3** `crates/api`: You add the query quota.
   - Each new query spends twitterapi.io and Cloudflare credit, so the quota counts queries, not requests.
   - The API counts the key's queries of the past hour in Postgres. Every API instance reads the same count.
   - A key over its quota gets `429` with a `Retry-After` header.
   - A reused query creates no new query, so it does not count.
+  - The count and the insert run in one transaction. The transaction first takes `PG_ADVISORY_XACT_LOCK` on the key ID, then the text lock of query reuse. It does so when the reuse window is 0 too. Parallel requests from one key then wait in line, and none passes the quota.
+  - `QUERY_QUOTA_ENABLED` turns the quota on or off. It is `true` in production. M6 sets it to `false` for load tests. The compute `config` map writes it to SSM, so a deploy picks up a change.
 - [ ] **5.4** `infra/terraform`: You add an ALB in the public subnets.
   - The HTTPS listener uses a certificate from ACM. The HTTP listener redirects to HTTPS. The ALB checks `GET /health`.
   - ACM needs a domain name. You register one in Route 53 for about 15 USD per year, or you use one you own.
   - The ALB security group accepts ports 80 and 443 from anywhere. `operator_cidr` goes away.
-  - The API security group accepts port 80 only from the ALB security group. The API instance loses its Elastic IP.
+  - The ALB security group has one egress rule: port 80 to the API security group. The network module strips the default egress rule, so without it every health check fails and the ALB answers `502`.
+  - The API security group accepts port 80 only from the ALB security group. The API instance loses its Elastic IP. It keeps its auto-assigned public IP, because it reaches ECR, SSM, SQS, and Datadog with no NAT gateway. The security group alone keeps the internet out.
+  - The `api_public_ip` output goes away. An `alb_dns_name` output replaces it.
+  - The bootstrap configuration owns the Route 53 hosted zone and the ACM certificate. The main configuration reads them as data sources. A `destroy` of the main configuration then keeps the zone's name servers and the validated certificate.
 - [ ] **5.5** `infra/terraform`: You attach AWS WAF to the ALB.
-  - A rate-based rule limits the requests of one IP address in each 5-minute window. WAF answers `429` above the limit.
+  - A rate-based rule limits the requests of one IP address in each 5-minute window. Above the limit, WAF answers with a custom response, code `429`. A WAF block answers `403` without one.
+  - The variable `waf_rate_limit_enabled` turns the rate rule on or off. Off sets the rule action to `count`: WAF records the requests and blocks none. M6 sets it to `false` for load tests.
   - The rule covers every route, including the routes that need no key.
   - The AWS managed core rule set blocks common attack patterns.
 - [ ] **5.6** You ask AWS for a G-instance vCPU quota increase, on-demand and Spot. Ask for 4 vCPUs of each. New accounts start at 0. Approval can take days, so M7 needs this request in early.
+
+**Cost:** the ALB costs about 16 USD a month plus LCU charges. WAF costs about 5 USD a month for the web ACL, 1 USD for each rule, and 0.60 USD for each million requests. Together they add about 24 USD a month. The hosted zone adds 0.50 USD a month. Both bill by the hour, so a `destroy` of the main configuration between sessions stops the ALB and WAF charges.
 
 **Docs:** `crates/api/README.md` gains a section on authentication and limits: who can call the API, what costs money, and what each limit stops. `infra/terraform/README.md` covers the domain, the certificate, and WAF. A decision record covers D18.
 
@@ -630,10 +641,12 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 
 - [ ] A request without a key, with an unknown key, or with a revoked key gets `401`.
 - [ ] A key over its quota gets `429`, and the key's query count stays at the quota.
-- [ ] A burst from one IP address above the WAF limit gets `429` from WAF.
+- [ ] A burst from one IP address above the WAF limit gets `429` from WAF. The burst lasts longer than one 5-minute window, because WAF takes time to start blocking.
+- [ ] With `QUERY_QUOTA_ENABLED=false`, a key over its quota still creates queries.
+- [ ] With `waf_rate_limit_enabled = false`, the same burst gets no `429` from WAF.
 - [ ] `curl https://<domain>/health` answers over a valid certificate. HTTP redirects to HTTPS. The API instance answers no request from the internet directly.
 - [ ] AWS has received the GPU quota application.
-- [ ] `terraform destroy` followed by `terraform apply` and one `deploy.yml` run rebuilds the stack, with the ALB, WAF, and certificate. You prove it once. This item moved from M3.
+- [ ] `terraform destroy` followed by `terraform apply` and one `deploy.yml` run rebuilds the stack, with the ALB, WAF, and certificate. You prove it once. This item moved from M3. Between `apply` and the deploy, you set the four secrets again with `put-parameter`, because `apply` writes placeholders. After the deploy, you create a new API key, because `destroy` deletes RDS.
 
 ---
 
