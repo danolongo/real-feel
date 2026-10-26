@@ -113,6 +113,8 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | calibration curve | noun | A chart of mean bot probability against the share of bots, one point for each of ten bins. | reliability diagram |
 | experiment | noun | One pass of the eval set through one model version, one metadata version, and one question version. | eval run, trial |
 | eval report | noun | A Markdown file in `docs/reports/` that compares experiments. | results, writeup |
+| manifest | noun | A JSON file that holds the sha256, the item count, and the count per label of one eval set file. The repository stores the manifest in place of the eval set. | checksum file, index |
+| reliability bin | noun | One of ten equal-width ranges of bot probability. It holds the item count, the mean bot probability, and the share of bots. | bucket |
 | calibration | noun | How closely bot probability matches reality. A calibrated 0.8 is right 80% of the time. | confidence accuracy |
 | benchmark | noun | A fixed measurement of inference server speed: throughput and latency at set batch sizes. Never a verb. | perf test |
 | load test | noun | A k6 script that sends HTTP requests to the API at a set rate. | stress test, perf test |
