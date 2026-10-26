@@ -37,7 +37,10 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | prediction | noun | The stored output for one model input: bot probability, model version, metadata version, question version. | decision, score, classification |
 | result | noun | What the API returns for a query whose status is `done`: tweets, accounts, and predictions. | response, output |
 | embedding | noun | A vector of numbers that captures the meaning of tweet text. Only the M8 experiments use embeddings. | vector, encoding |
-| label | noun | The known truth for one eval set item: `bot` or `human`. Never a verb. | ground truth, tag |
+| label | noun | The known truth for one eval set item: `human`, `bot`, or `agent`. Never a verb. | ground truth, tag |
+| agent account | noun | A bot that an LLM runs. It writes its own tweets. Label value: `agent`. | AI bot, LLM bot |
+| recent tweets | noun | The latest tweets of one account, which `eval collect` fetches apart from the tweet that matched the query. | timeline, history |
+| LLM text | noun | Tweet text that an LLM wrote, whoever posted it. Field name: `is_llm_text`. | AI text, generated text |
 
 ## Components
 
@@ -104,6 +107,10 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | Term | Part of speech | Definition | Do not use |
 |------|----------------|------------|------------|
 | eval set | noun | A fixed collection of tweets and accounts, each with a label. | test set, benchmark data |
+| label agent | noun | The Claude Haiku session that reads eval set items and writes their labels by the criteria in `crates/eval/LABELS.md`. | annotator, labeler |
+| tune split | noun | The 30% of eval set accounts that set the bot threshold. | train set, dev set |
+| test split | noun | The 70% of eval set accounts that every comparison in an eval report uses. | holdout, test set |
+| calibration curve | noun | A chart of mean bot probability against the share of bots, one point for each of ten bins. | reliability diagram |
 | experiment | noun | One pass of the eval set through one model version, one metadata version, and one question version. | eval run, trial |
 | eval report | noun | A Markdown file in `docs/reports/` that compares experiments. | results, writeup |
 | calibration | noun | How closely bot probability matches reality. A calibrated 0.8 is right 80% of the time. | confidence accuracy |
