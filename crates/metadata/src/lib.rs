@@ -1,3 +1,5 @@
+mod state;
+
 use serde_json::Value;
 use types::{Account, MetadataVersion, ModelInput, Question, QuestionVersion, Tweet};
 
@@ -9,25 +11,40 @@ pub enum Error {
     UnknownQuestionVersion(String),
 }
 
-const QUESTION_V1: &str = "Is the account behind this tweet a bot?";
+const BOT_V1: &str = "Is the account behind this tweet a bot?";
+const BOT_V2: &str = "Is this account run by software rather than by a person? Software includes scripts, schedulers, and LLM agents.";
+const BOT_V3: &str = "Is this account a bot? Count both scripted bots and AI agents: accounts that an LLM runs and that write their own fluent, varied tweets. A person who sometimes posts AI-written text is not a bot.";
+const LLM_TEXT_V4: &str = "Did an LLM write the text of this tweet, whoever posted it?";
+
+fn question(id: &str, instructions: &str) -> Question {
+    Question {
+        id: id.into(),
+        instructions: instructions.into(),
+    }
+}
 
 /// Builds the model input for one tweet. The same inputs always give the same model input.
+/// `recent_tweets` are the recent tweets of the account. Only `v4` and later read them.
 pub fn build(
     tweet: &Tweet,
-    _account: &Account,
-    _recent_tweets: &[Tweet],
+    account: &Account,
+    recent_tweets: &[Tweet],
     metadata_version: &MetadataVersion,
     question_version: &QuestionVersion,
 ) -> Result<ModelInput, Error> {
     let state = match metadata_version.0.as_str() {
         "v1" => Value::String(tweet.text.clone()),
+        "v2" => state::object(2, tweet, account, recent_tweets),
+        "v3" => state::object(3, tweet, account, recent_tweets),
+        "v4" => state::object(4, tweet, account, recent_tweets),
+        "v5" => state::object(5, tweet, account, recent_tweets),
         other => return Err(Error::UnknownMetadataVersion(other.into())),
     };
     let questions = match question_version.0.as_str() {
-        "v1" => vec![Question {
-            id: "bot".into(),
-            instructions: QUESTION_V1.into(),
-        }],
+        "v1" => vec![question("bot", BOT_V1)],
+        "v2" => vec![question("bot", BOT_V2)],
+        "v3" => vec![question("bot", BOT_V3)],
+        "v4" => vec![question("bot", BOT_V3), question("llm_text", LLM_TEXT_V4)],
         other => return Err(Error::UnknownQuestionVersion(other.into())),
     };
     Ok(ModelInput {
@@ -117,7 +134,7 @@ mod tests {
             a.questions,
             [Question {
                 id: "bot".into(),
-                instructions: QUESTION_V1.into(),
+                instructions: BOT_V1.into(),
             }]
         );
     }
