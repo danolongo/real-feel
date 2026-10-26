@@ -96,8 +96,7 @@ write_agent_env() {
     printf '%s\n' \
       'DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT=0.0.0.0:4318' \
       'DD_LOGS_ENABLED=true' \
-      'DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true' \
-      'DD_PROC_ROOT=/host/proc'
+      'DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true'
   } >"$tmp"
 
   mv -f "$tmp" "$AGENT_ENV_FILE"
@@ -118,8 +117,20 @@ remove_container() {
 # config hash goes into a label, so a changed env file or image restarts it.
 ensure_agent() {
   local config_hash current_hash running
+  # --pid host lets the agent find its own process in /host/proc. Without it, the
+  # OTLP pipeline fails at startup and the agent drops every trace.
+  local -a run_flags=(
+    --network "$NETWORK"
+    --pid host
+    --restart unless-stopped
+    --env-file "$AGENT_ENV_FILE"
+    -v /var/run/docker.sock:/var/run/docker.sock:ro
+    -v /proc/:/host/proc/:ro
+    -v /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+    -v /var/lib/docker/containers:/var/lib/docker/containers:ro
+  )
 
-  config_hash=$({ cat "$AGENT_ENV_FILE"; printf '%s\n' "$AGENT_IMAGE"; } | sha256sum | cut -d ' ' -f 1)
+  config_hash=$({ cat "$AGENT_ENV_FILE"; printf '%s\n' "$AGENT_IMAGE" "${run_flags[@]}"; } | sha256sum | cut -d ' ' -f 1)
   current_hash=$(docker inspect --format '{{ index .Config.Labels "real-feel.config-hash" }}' "$AGENT_NAME" 2>/dev/null || true)
   running=$(docker inspect --format '{{ .State.Running }}' "$AGENT_NAME" 2>/dev/null || true)
 
@@ -131,14 +142,8 @@ ensure_agent() {
   docker pull "$AGENT_IMAGE" >/dev/null
   remove_container "$AGENT_NAME"
   docker run -d --name "$AGENT_NAME" \
-    --network "$NETWORK" \
-    --restart unless-stopped \
     --label "real-feel.config-hash=$config_hash" \
-    --env-file "$AGENT_ENV_FILE" \
-    -v /var/run/docker.sock:/var/run/docker.sock:ro \
-    -v /proc/:/host/proc/:ro \
-    -v /sys/fs/cgroup/:/host/sys/fs/cgroup:ro \
-    -v /var/lib/docker/containers:/var/lib/docker/containers:ro \
+    "${run_flags[@]}" \
     "$AGENT_IMAGE" >/dev/null
   log "$AGENT_NAME started"
 }
