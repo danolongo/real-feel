@@ -4,7 +4,7 @@
 
 ## Where it sits
 
-`eval` is a library and a binary. It depends only on `types`. It does not call Postgres, the classifier, `metadata`, or the scraper yet. A later task wires `eval collect` and `eval experiment` to them.
+`eval` is a library and a binary. It depends on `types` and `scraper`. It does not call Postgres, the classifier, or `metadata` yet. A later task wires `eval experiment` to them.
 
 ## Terms
 
@@ -12,7 +12,7 @@ See [glossary.md](../../docs/glossary.md): eval set, label, agent account, recen
 
 ## How it works
 
-1. `eval collect` writes one `CollectedItem` for each account. (Not built yet.)
+1. `eval collect` writes one `CollectedItem` for each account.
 2. The label agent writes one `LabelRecord` for each account.
 3. `join` matches collected items to label records by account ID. It drops `unsure` labels and items with no label record. It reports both counts. It returns an error when two label records share an account ID.
 4. `join` copies the `is_llm_text` flag of the tweet that matched the query into the `EvalItem`. The flag stays empty when no flag names that tweet.
@@ -73,6 +73,41 @@ cargo run -p eval -- manifest crates/eval/fixtures/eval-set.jsonl
 
 The repository stores this JSON at `crates/eval/manifest.json` for the real eval set. The real eval set lives in a private S3 bucket.
 
+## Collect accounts
+
+You run `eval collect` yourself. It needs `TWITTERAPI_KEY`, and it spends money.
+
+```bash
+cargo run -p eval -- collect --queries queries.txt --out collected.jsonl \
+  --recent 20 --pages 1 --skip eval-set.jsonl
+```
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `--queries` | none | One query for each line. Lines that start with `#` are comments. |
+| `--out` | none | The output file, in JSON Lines. A run adds to it and skips the accounts it holds. |
+| `--recent` | 20 | Recent tweets to fetch for each account. |
+| `--pages` | 1 | Search pages for each query. A page holds up to 20 tweets. |
+| `--skip` | none | An eval set file or collected file whose accounts to skip. Repeat for more files. |
+| `--yes` | off | Skip the `Continue? [y/N]` prompt. |
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `TWITTERAPI_KEY` | none | The twitterapi.io key. |
+| `TWITTERAPI_INTERVAL_SECS` | 5 | The time from the start of one request to the start of the next. |
+| `TWITTERAPI_BASE_URL` | `https://api.twitterapi.io` | The twitterapi.io address. |
+
+How it works:
+
+1. `collect` prints the expected cost and asks `Continue? [y/N]`. It makes no call before you answer `y`.
+2. For each query, `collect` calls `TwitterApi::scrape`. It keeps the first tweet of each new account.
+3. `collect` skips accounts in a `--skip` file, in the `--out` file, or seen earlier in the run.
+4. For each new account, `collect` calls `recent_tweets`. It writes one `CollectedItem` line and flushes the file. A stopped run keeps what it wrote.
+5. A failure for one query or one account prints a warning. `collect` moves on.
+6. `collect` prints the counts and the estimated cost of what it fetched.
+
+Cost: twitterapi.io charges `USD_PER_1000_TWEETS` (0.15 USD per 1,000 tweets) and at least `USD_PER_CALL_MINIMUM` (0.00015 USD) for each call. The upper bound is queries × pages × 20 search tweets, plus that many accounts × `--recent` recent tweets. Example: 10 queries, 1 page, 20 recent tweets give 200 search tweets and at most 4,000 recent tweets, about 0.63 USD.
+
 ## Fixture
 
 `fixtures/eval-set.jsonl` holds ten invented items: 4 human, 4 bot, 2 agent. Two tweets carry `is_llm_text: true`. The handles and texts are made up. They are not X data.
@@ -82,7 +117,8 @@ The repository stores this JSON at `crates/eval/manifest.json` for the real eval
 | Subcommand | State |
 |------------|-------|
 | `manifest <eval set file>` | Works. |
-| `collect`, `experiment`, `report` | Print `not built yet` and exit 1. |
+| `collect` | Works. See [Collect accounts](#collect-accounts). |
+| `experiment`, `report` | Print `not built yet` and exit 1. |
 
 ## Test it
 
@@ -100,4 +136,7 @@ The tests need no network access and no Docker.
 |-------|-------|-------------|
 | `Io` | The file does not exist or you cannot read it. | Fix the path. Download the eval set with `aws s3 cp`. |
 | `Line` | A line is not valid JSON, or misses a field. The error names the line number. | Fix that line. |
+| `MissingSetting` | `TWITTERAPI_KEY` is not set. | Set it, then run again. |
+| `Scraper` | twitterapi.io failed on a call that `collect` cannot skip. | Read the message. Run again: `collect` skips collected accounts. |
+| `NoQueries` | The queries file holds no query. | Add a query. |
 | `DuplicateLabelRecord` | Two label records share an account ID. | Remove one record. |
