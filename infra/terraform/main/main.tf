@@ -48,5 +48,12 @@ module "compute" {
     DB_NAME              = module.database.db_name
     DB_SECRET_ARN        = module.database.db_secret_arn
     DD_SITE              = var.datadog_site
+
+    DEFAULT_MODEL_VERSION    = "clef-flash-hosted"
+    DEFAULT_METADATA_VERSION = "v1"
+    DEFAULT_QUESTION_VERSION = "v1"
+    BATCH_SIZE               = "25"
+    # Stays below the 300 s visibility timeout of the queues.
+    JOB_DEADLINE_SECS = "240"
   }
 }
