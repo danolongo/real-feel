@@ -66,11 +66,12 @@ Run every command from the repository root.
 
    ```bash
    terraform -chdir=infra/terraform/main apply \
-     -var operator_cidr=<your IP>/32 \
-     -var datadog_external_id=<external ID>
+     -var operator_cidr=$(curl -s https://checkip.amazonaws.com)/32 \
+     -var datadog_external_id=<external ID> \
+     -var datadog_site=us5.datadoghq.com
    ```
 
-   Add `-var datadog_site=<site>` when your Datadog site is not `datadoghq.com`.
+   `datadog_site` is the host of your Datadog URL. Replace `us5.datadoghq.com` when your URL differs. The `curl` command prints your public IPv4 address. Turn off any VPN first, or the address belongs to the VPN.
 
 5. Set the four secrets. Terraform ignores later changes to their values, so no secret enters the state file.
 
@@ -119,8 +120,9 @@ Destroy the main configuration. The bootstrap configuration stays, because the s
 
 ```bash
 terraform -chdir=infra/terraform/main destroy \
-  -var operator_cidr=<your IP>/32 \
-  -var datadog_external_id=<external ID>
+  -var operator_cidr=$(curl -s https://checkip.amazonaws.com)/32 \
+  -var datadog_external_id=<external ID> \
+  -var datadog_site=us5.datadoghq.com
 ```
 
 After a new `apply`, repeat steps 5, 6, 7, and 8. A new `apply` creates new placeholder parameters, a new role ARN, and empty ECR repositories.
