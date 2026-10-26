@@ -560,6 +560,8 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
 - [ ] **4.7** You settle O4 from the eval report. You record the chosen bot threshold in a decision record. The API adds `is_bot` to the result.
 - [ ] **4.8** You compare each metadata version's fields against the fields twitterapi.io returns. You list the gaps in the eval report.
 - [ ] **4.9** CI runs one experiment on a ten-item fixture eval set with the fake classifier.
+- [ ] **4.10** You measure how repeatable Clef-flash is. You send each tweet of a 50-tweet sample 5 times with the same input and report the spread of `p_bot`. A wide spread limits every comparison in the eval report.
+- [ ] **4.11** You test whether LLM-written text raises `p_bot`. The live test scored a tweet with typical LLM phrasing and odd semicolon use at 0.14. The eval set gets a labeled group of LLM-written tweets. A question version asks about LLM writing on its own, because a human can post LLM text and the bot question asks about the account.
 
 **Docs:** `crates/eval/README.md`, `docs/reports/eval-m4.md`, decision records for O3 and O4 and the default metadata version.
 
