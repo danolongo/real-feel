@@ -15,6 +15,12 @@ const DATE_FORMAT: &str = "%a %b %d %H:%M:%S %z %Y";
 /// The most requests for one page, counting the first.
 const MAX_ATTEMPTS: u32 = 3;
 
+/// The price of twitterapi.io for 1,000 tweets, in US dollars. Search and recent tweets share it, as far as the price page shows.
+pub const USD_PER_1000_TWEETS: f64 = 0.15;
+
+/// The least twitterapi.io charges for one successful call, in US dollars, even for an empty page.
+pub const USD_PER_CALL_MINIMUM: f64 = 0.00015;
+
 #[derive(Deserialize)]
 struct SearchPage {
     tweets: Vec<Value>,
@@ -42,6 +48,18 @@ struct SearchAuthor {
     statuses_count: Option<i32>,
     is_blue_verified: Option<bool>,
     is_automated: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct RecentPage {
+    data: RecentData,
+    has_next_page: bool,
+    next_cursor: String,
+}
+
+#[derive(Deserialize)]
+struct RecentData {
+    tweets: Vec<Value>,
 }
 
 fn parse_date(date: &str) -> Result<DateTime<Utc>, Error> {
@@ -77,25 +95,14 @@ impl TwitterApi {
     }
 
     /// Sends the request again after `interval` when twitterapi.io answers `429`.
-    #[tracing::instrument(name = "twitterapi_page", skip(self, query, cursor))]
-    async fn fetch_page(&self, query: &str, cursor: &str, page: u32) -> Result<SearchPage, Error> {
+    async fn get(&self, path: &str, params: &[(&str, &str)]) -> Result<reqwest::Response, Error> {
         let mut attempt = 1;
         loop {
             let response = self
                 .client
-                .get(format!(
-                    "{}/twitter/tweet/advanced_search",
-                    self.base_url.trim_end_matches('/')
-                ))
+                .get(format!("{}{path}", self.base_url.trim_end_matches('/')))
                 .header("X-API-Key", &self.key)
-                .query(&[
-                    (
-                        "query",
-                        format!("{query} lang:en -filter:retweets").as_str(),
-                    ),
-                    ("queryType", "Latest"),
-                    ("cursor", cursor),
-                ])
+                .query(params)
                 .send()
                 .await?;
             if response.status() == StatusCode::TOO_MANY_REQUESTS && attempt < MAX_ATTEMPTS {
@@ -107,8 +114,72 @@ impl TwitterApi {
                 tokio::time::sleep(self.interval).await;
                 continue;
             }
-            return Ok(response.error_for_status()?.json().await?);
+            return Ok(response.error_for_status()?);
         }
+    }
+
+    #[tracing::instrument(name = "twitterapi_page", skip(self, query, cursor))]
+    async fn fetch_page(&self, query: &str, cursor: &str, page: u32) -> Result<SearchPage, Error> {
+        let query = format!("{query} lang:en -filter:retweets");
+        let response = self
+            .get(
+                "/twitter/tweet/advanced_search",
+                &[
+                    ("query", query.as_str()),
+                    ("queryType", "Latest"),
+                    ("cursor", cursor),
+                ],
+            )
+            .await?;
+        Ok(response.json().await?)
+    }
+
+    /// Fetches up to `limit` of the newest tweets of the account `handle`, newest first. Stops
+    /// early when the account has no more tweets. Replies are left out. Maps each tweet as
+    /// `scrape` does.
+    #[tracing::instrument(name = "twitterapi_recent_tweets", skip(self))]
+    pub async fn recent_tweets(&self, handle: &str, limit: usize) -> Result<Vec<Tweet>, Error> {
+        let mut tweets: Vec<Tweet> = Vec::new();
+        let mut tweet_ids = HashSet::new();
+        let mut cursor = String::new();
+        let mut next_request = Instant::now();
+        while tweets.len() < limit {
+            tokio::time::sleep_until(next_request).await;
+            next_request = Instant::now() + self.interval;
+            let page: RecentPage = self
+                .get(
+                    "/twitter/user/last_tweets",
+                    &[("userName", handle), ("cursor", cursor.as_str())],
+                )
+                .await?
+                .json()
+                .await?;
+            tracing::info!(
+                tweets = page.data.tweets.len(),
+                has_next_page = page.has_next_page,
+                "twitterapi.io recent tweets page fetched"
+            );
+            let empty = page.data.tweets.is_empty();
+            for raw in page.data.tweets {
+                let tweet: SearchTweet = serde_json::from_value(raw.clone())?;
+                let author: SearchAuthor = serde_json::from_value(tweet.author)?;
+                if tweet_ids.insert(tweet.id.clone()) {
+                    tweets.push(Tweet {
+                        id: tweet.id,
+                        account_id: author.id,
+                        text: tweet.text,
+                        posted_at: Some(parse_date(&tweet.created_at)?),
+                        raw,
+                    });
+                }
+            }
+            if empty || !page.has_next_page {
+                break;
+            }
+            cursor = page.next_cursor;
+        }
+        tweets.truncate(limit);
+        Ok(tweets)
     }
 }
 
@@ -400,5 +471,149 @@ mod tests {
             .await;
         let error = scraper(&server, 1).scrape("q").await.unwrap_err();
         assert!(matches!(error, Error::Http(_)));
+    }
+
+    fn recent_page(tweets: Vec<Value>, next_cursor: Option<&str>) -> ResponseTemplate {
+        ResponseTemplate::new(200).set_body_json(json!({
+            "status": "success",
+            "code": 0,
+            "msg": "success",
+            "data": { "pin_tweet": null, "tweets": tweets },
+            "has_next_page": next_cursor.is_some(),
+            "next_cursor": next_cursor.unwrap_or(""),
+        }))
+    }
+
+    #[tokio::test]
+    async fn recent_tweets_sends_key_handle_and_cursor() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/twitter/user/last_tweets"))
+            .and(header("X-API-Key", "made-up-key"))
+            .and(query_param("userName", "made_up_1"))
+            .and(query_param("cursor", ""))
+            .respond_with(recent_page(vec![tweet("101", "1")], None))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let tweets = scraper(&server, 1)
+            .recent_tweets("made_up_1", 20)
+            .await
+            .unwrap();
+        assert_eq!(tweets.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn recent_tweets_maps_a_tweet_as_search_does() {
+        let server = MockServer::start().await;
+        Mock::given(path("/twitter/tweet/advanced_search"))
+            .respond_with(page(vec![tweet("101", "1")], None))
+            .mount(&server)
+            .await;
+        Mock::given(path("/twitter/user/last_tweets"))
+            .respond_with(recent_page(vec![tweet("101", "1")], None))
+            .mount(&server)
+            .await;
+        let api = scraper(&server, 1);
+        let searched = api.scrape("q").await.unwrap().tweets;
+        let recent = api.recent_tweets("made_up_1", 20).await.unwrap();
+        assert_eq!(recent, searched);
+    }
+
+    #[tokio::test]
+    async fn recent_tweets_follows_the_cursor_across_two_pages() {
+        let server = MockServer::start().await;
+        Mock::given(query_param("cursor", ""))
+            .respond_with(recent_page(
+                vec![tweet("103", "1"), tweet("102", "1")],
+                Some("cursor-one"),
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(query_param("cursor", "cursor-one"))
+            .respond_with(recent_page(vec![tweet("101", "1")], None))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let tweets = scraper(&server, 1).recent_tweets("h", 20).await.unwrap();
+        let ids: Vec<_> = tweets.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, ["103", "102", "101"]);
+    }
+
+    #[tokio::test]
+    async fn recent_tweets_stops_at_the_limit_without_another_page() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(recent_page(
+                vec![tweet("103", "1"), tweet("102", "1")],
+                Some("more"),
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let tweets = scraper(&server, 1).recent_tweets("h", 1).await.unwrap();
+        assert_eq!(tweets.len(), 1);
+        assert_eq!(tweets[0].id, "103");
+    }
+
+    #[tokio::test]
+    async fn recent_tweets_returns_nothing_for_an_empty_account() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(recent_page(vec![], None))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let tweets = scraper(&server, 1).recent_tweets("h", 20).await.unwrap();
+        assert!(tweets.is_empty());
+    }
+
+    #[tokio::test]
+    async fn recent_tweets_stops_on_an_empty_page_that_claims_a_next_page() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(recent_page(vec![], Some("more")))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let tweets = scraper(&server, 1).recent_tweets("h", 20).await.unwrap();
+        assert!(tweets.is_empty());
+    }
+
+    #[tokio::test]
+    async fn recent_tweets_fails_on_an_error_status() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(400)
+                    .set_body_json(json!({ "error": 400, "message": "bad request" })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let error = scraper(&server, 1)
+            .recent_tweets("h", 20)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, Error::Http(_)));
+    }
+
+    #[tokio::test]
+    async fn recent_tweets_sends_the_request_again_after_a_429() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(429))
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .respond_with(recent_page(vec![tweet("101", "1")], None))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let tweets = scraper(&server, 1).recent_tweets("h", 20).await.unwrap();
+        assert_eq!(tweets.len(), 1);
     }
 }

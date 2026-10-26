@@ -22,13 +22,14 @@ Logged-out visitors cannot search X. Every local scraper that still works (twscr
 
 ## twitterapi.io
 
-`scripts/spike-twitterapi.sh` calls three endpoints. All three succeed.
+`scripts/spike-twitterapi.sh` calls three endpoints. All three succeed. The table also lists `last_tweets`, which the documentation describes and no call has tested.
 
 | Endpoint | Returns |
 |----------|---------|
 | `GET /twitter/tweet/advanced_search` | 20 tweets per page and a `next_cursor` |
 | `GET /twitter/user/info` | One account |
 | `GET /twitter/tweets?tweet_ids=` | Up to 50 tweets by ID |
+| `GET /twitter/user/last_tweets` (not yet called live) | Up to 20 recent tweets of one account per page, with `data.tweets`, `has_next_page`, and `next_cursor` |
 
 Every tweet in a search result carries its author, so the scraper needs one call for each page and no profile calls.
 

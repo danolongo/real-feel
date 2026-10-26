@@ -5,7 +5,7 @@ use types::{Account, Tweet};
 
 mod twitterapi;
 
-pub use twitterapi::TwitterApi;
+pub use twitterapi::{TwitterApi, USD_PER_1000_TWEETS, USD_PER_CALL_MINIMUM};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
