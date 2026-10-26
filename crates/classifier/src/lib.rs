@@ -14,7 +14,7 @@ pub enum Error {
     Http(#[from] reqwest::Error),
     #[error("backend returned status {0}")]
     Status(u16),
-    #[error("backend response has no bot probability: {0}")]
+    #[error("backend response lacks an answer: {0}")]
     Response(String),
     #[error("the fake failed on purpose")]
     Fake,

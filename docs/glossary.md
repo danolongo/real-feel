@@ -29,12 +29,13 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | metadata | noun | The account fields and tweet fields, other than tweet text, that a model input carries. Examples: account age, follower count, posting times. | features, attributes, context |
 | metadata version | noun | An identifier (`v1`, `v2`, …) for one exact set of metadata fields and one exact text layout. | schema, shape, feature set |
 | question version | noun | An identifier (`v1`, `v2`, …) for one exact wording of the question that Clef-flash answers. | prompt version |
-| model input | noun | Everything the classifier sends to Clef-flash for one tweet: tweet text, metadata, and the question. | payload, prompt |
+| model input | noun | Everything the classifier sends to Clef-flash for one tweet: the state (tweet text and metadata) and the questions. | payload, prompt |
 | bot | noun | An account that software runs. | fake account |
 | human | noun | An account that a person runs. | real account, organic account |
 | bot probability | noun | A number from 0 to 1. It says how likely Clef-flash thinks the account behind a tweet is a bot. Field name: `p_bot`. | bot score, confidence, score |
+| LLM-text probability | noun | A number from 0 to 1. It says how likely Clef-flash thinks an LLM wrote the tweet text. It stays empty when the model input asks no LLM-writing question. Field name: `p_llm_text`. | AI-text score |
 | bot threshold | noun | The bot probability at or above which the API reports an account as a bot. Field name: `is_bot`. | cutoff |
-| prediction | noun | The stored output for one model input: bot probability, model version, metadata version, question version. | decision, score, classification |
+| prediction | noun | The stored output for one model input: bot probability, LLM-text probability, model version, metadata version, question version. | decision, score, classification |
 | result | noun | What the API returns for a query whose status is `done`: tweets, accounts, and predictions. | response, output |
 | embedding | noun | A vector of numbers that captures the meaning of tweet text. Only the M8 experiments use embeddings. | vector, encoding |
 | label | noun | The known truth for one eval set item: `human`, `bot`, or `agent`. Never a verb. | ground truth, tag |

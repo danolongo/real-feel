@@ -1,0 +1,1 @@
+ALTER TABLE predictions ADD COLUMN p_llm_text DOUBLE PRECISION;

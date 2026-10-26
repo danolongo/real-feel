@@ -208,16 +208,18 @@ pub async fn upsert_prediction<'e>(
 ) -> Result<u64, Error> {
     let result = sqlx::query!(
         "INSERT INTO predictions
-            (tweet_id, model_version, metadata_version, question_version, p_bot, raw)
-        VALUES ($1, $2, $3, $4, $5, $6)
+            (tweet_id, model_version, metadata_version, question_version, p_bot, p_llm_text, raw)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (tweet_id, model_version, metadata_version, question_version) DO UPDATE
-        SET p_bot = EXCLUDED.p_bot, raw = EXCLUDED.raw
-        WHERE (predictions.p_bot, predictions.raw) IS DISTINCT FROM (EXCLUDED.p_bot, EXCLUDED.raw)",
+        SET p_bot = EXCLUDED.p_bot, p_llm_text = EXCLUDED.p_llm_text, raw = EXCLUDED.raw
+        WHERE (predictions.p_bot, predictions.p_llm_text, predictions.raw)
+            IS DISTINCT FROM (EXCLUDED.p_bot, EXCLUDED.p_llm_text, EXCLUDED.raw)",
         prediction.tweet_id,
         &prediction.model_version as &ModelVersion,
         &prediction.metadata_version as &MetadataVersion,
         &prediction.question_version as &QuestionVersion,
         prediction.p_bot,
+        prediction.p_llm_text,
         prediction.raw
     )
     .execute(db)
@@ -237,7 +239,7 @@ pub async fn result_page<'e>(
         r#"SELECT t.id, t.account_id, t.text, t.posted_at, t.raw,
             a.handle, a.joined_at, a.followers, a.following, a.tweet_count,
             a.is_verified, a.is_automated, a.raw AS account_raw,
-            p.p_bot AS "p_bot?", p.raw AS "prediction_raw?"
+            p.p_bot AS "p_bot?", p.p_llm_text, p.raw AS "prediction_raw?"
         FROM query_tweets qt
         JOIN tweets t ON t.id = qt.tweet_id
         JOIN accounts a ON a.id = t.account_id
@@ -267,6 +269,7 @@ pub async fn result_page<'e>(
                     metadata_version: versions.metadata.clone(),
                     question_version: versions.question.clone(),
                     p_bot,
+                    p_llm_text: row.p_llm_text,
                     raw,
                 }),
             account: Account {

@@ -49,6 +49,7 @@ fn prediction(tweet_id: &str, model: &str) -> Prediction {
         metadata_version: v.metadata,
         question_version: v.question,
         p_bot: 0.5,
+        p_llm_text: None,
         raw: json!({}),
     }
 }
@@ -489,4 +490,32 @@ async fn two_identical_queries_at_once_get_one_query(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(rows, 1);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn upsert_prediction_stores_and_updates_p_llm_text(pool: PgPool) {
+    let id = seed(&pool, 1).await;
+    let with_llm_text = Prediction {
+        p_llm_text: Some(0.25),
+        ..prediction("0000", "m1")
+    };
+    assert_eq!(
+        db::upsert_prediction(&pool, &with_llm_text).await.unwrap(),
+        1
+    );
+    assert_eq!(
+        db::upsert_prediction(&pool, &with_llm_text).await.unwrap(),
+        0
+    );
+    let page = db::result_page(&pool, id, &versions("m1"), None, 50)
+        .await
+        .unwrap();
+    assert_eq!(page[0].prediction.as_ref().unwrap().p_llm_text, Some(0.25));
+
+    let without = prediction("0000", "m1");
+    assert_eq!(db::upsert_prediction(&pool, &without).await.unwrap(), 1);
+    let page = db::result_page(&pool, id, &versions("m1"), None, 50)
+        .await
+        .unwrap();
+    assert_eq!(page[0].prediction.as_ref().unwrap().p_llm_text, None);
 }
