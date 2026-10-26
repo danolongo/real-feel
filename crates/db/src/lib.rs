@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
+use serde_json::Value;
 use sqlx::{PgExecutor, migrate::Migrator};
 use types::{
     Account, MetadataVersion, ModelVersion, Prediction, Query, QueryStatus, QuestionVersion, Tweet,
@@ -443,4 +445,147 @@ pub async fn finish_batch(
     };
     tx.commit().await?;
     Ok(done)
+}
+
+pub struct NewExperiment {
+    pub model_version: ModelVersion,
+    pub metadata_version: MetadataVersion,
+    pub question_version: QuestionVersion,
+    pub eval_set_sha256: String,
+    pub seed: i64,
+    pub repeats: i32,
+}
+
+pub struct Experiment {
+    pub id: Uuid,
+    pub model_version: ModelVersion,
+    pub metadata_version: MetadataVersion,
+    pub question_version: QuestionVersion,
+    pub eval_set_sha256: String,
+    pub seed: i64,
+    pub repeats: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+/// `label` holds `human`, `bot`, or `agent`. `split` holds `tune` or `test`. Postgres rejects any other value.
+pub struct ExperimentResult {
+    pub account_id: String,
+    pub tweet_id: String,
+    pub repeat: i32,
+    pub label: String,
+    pub split: String,
+    pub is_llm_text: Option<bool>,
+    pub p_bot: f64,
+    pub p_llm_text: Option<f64>,
+    pub raw: Value,
+}
+
+pub async fn insert_experiment<'e>(
+    db: impl PgExecutor<'e>,
+    experiment: &NewExperiment,
+) -> Result<Experiment, Error> {
+    sqlx::query_as!(
+        Experiment,
+        r#"INSERT INTO experiments
+            (id, model_version, metadata_version, question_version, eval_set_sha256, seed, repeats)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, model_version AS "model_version: ModelVersion",
+            metadata_version AS "metadata_version: MetadataVersion",
+            question_version AS "question_version: QuestionVersion",
+            eval_set_sha256, seed, repeats, created_at"#,
+        Uuid::new_v4(),
+        &experiment.model_version as &ModelVersion,
+        &experiment.metadata_version as &MetadataVersion,
+        &experiment.question_version as &QuestionVersion,
+        experiment.eval_set_sha256,
+        experiment.seed,
+        experiment.repeats
+    )
+    .fetch_one(db)
+    .await
+}
+
+/// Inserts all `results` in one statement. A repeated `(account_id, repeat)` pair for the same
+/// experiment fails the primary key.
+pub async fn insert_experiment_results<'e>(
+    db: impl PgExecutor<'e>,
+    experiment_id: Uuid,
+    results: &[ExperimentResult],
+) -> Result<u64, Error> {
+    let account_ids: Vec<&str> = results.iter().map(|r| r.account_id.as_str()).collect();
+    let tweet_ids: Vec<&str> = results.iter().map(|r| r.tweet_id.as_str()).collect();
+    let repeats: Vec<i32> = results.iter().map(|r| r.repeat).collect();
+    let labels: Vec<&str> = results.iter().map(|r| r.label.as_str()).collect();
+    let splits: Vec<&str> = results.iter().map(|r| r.split.as_str()).collect();
+    let is_llm_texts: Vec<Option<bool>> = results.iter().map(|r| r.is_llm_text).collect();
+    let p_bots: Vec<f64> = results.iter().map(|r| r.p_bot).collect();
+    let p_llm_texts: Vec<Option<f64>> = results.iter().map(|r| r.p_llm_text).collect();
+    let raws: Vec<&Value> = results.iter().map(|r| &r.raw).collect();
+    let result = sqlx::query!(
+        "INSERT INTO experiment_results
+            (experiment_id, account_id, tweet_id, repeat, label, split, is_llm_text, p_bot,
+            p_llm_text, raw)
+        SELECT $1, * FROM UNNEST($2::TEXT[], $3::TEXT[], $4::INTEGER[], $5::TEXT[], $6::TEXT[],
+            $7::BOOLEAN[], $8::DOUBLE PRECISION[], $9::DOUBLE PRECISION[], $10::JSONB[])",
+        experiment_id,
+        &account_ids as &[&str],
+        &tweet_ids as &[&str],
+        &repeats,
+        &labels as &[&str],
+        &splits as &[&str],
+        &is_llm_texts as &[Option<bool>],
+        &p_bots,
+        &p_llm_texts as &[Option<f64>],
+        &raws as &[&Value]
+    )
+    .execute(db)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+pub async fn fetch_experiment<'e>(
+    db: impl PgExecutor<'e>,
+    id: Uuid,
+) -> Result<Option<Experiment>, Error> {
+    sqlx::query_as!(
+        Experiment,
+        r#"SELECT id, model_version AS "model_version: ModelVersion",
+            metadata_version AS "metadata_version: MetadataVersion",
+            question_version AS "question_version: QuestionVersion",
+            eval_set_sha256, seed, repeats, created_at
+        FROM experiments WHERE id = $1"#,
+        id
+    )
+    .fetch_optional(db)
+    .await
+}
+
+/// Returns all experiments, oldest first.
+pub async fn list_experiments<'e>(db: impl PgExecutor<'e>) -> Result<Vec<Experiment>, Error> {
+    sqlx::query_as!(
+        Experiment,
+        r#"SELECT id, model_version AS "model_version: ModelVersion",
+            metadata_version AS "metadata_version: MetadataVersion",
+            question_version AS "question_version: QuestionVersion",
+            eval_set_sha256, seed, repeats, created_at
+        FROM experiments ORDER BY created_at, id"#
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// Returns the results of one experiment, sorted by account ID and repeat.
+pub async fn experiment_results<'e>(
+    db: impl PgExecutor<'e>,
+    experiment_id: Uuid,
+) -> Result<Vec<ExperimentResult>, Error> {
+    sqlx::query_as!(
+        ExperimentResult,
+        "SELECT account_id, tweet_id, repeat, label, split, is_llm_text, p_bot, p_llm_text, raw
+        FROM experiment_results WHERE experiment_id = $1
+        ORDER BY account_id, repeat",
+        experiment_id
+    )
+    .fetch_all(db)
+    .await
 }

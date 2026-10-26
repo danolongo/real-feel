@@ -29,6 +29,7 @@ pub struct AppState {
     pub db: PgPool,
     pub queue: Queue,
     pub versions: Arc<Versions>,
+    pub bot_threshold: f64,
     pub query_reuse: Duration,
 }
 
@@ -122,6 +123,7 @@ struct TweetView {
     posted_at: Option<DateTime<Utc>>,
     account: AccountView,
     p_bot: Option<f64>,
+    is_bot: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -130,8 +132,9 @@ struct AccountView {
     handle: String,
 }
 
-impl From<ResultTweet> for TweetView {
-    fn from(row: ResultTweet) -> Self {
+impl TweetView {
+    fn new(row: ResultTweet, bot_threshold: f64) -> Self {
+        let p_bot = row.prediction.map(|prediction| prediction.p_bot);
         Self {
             tweet_id: row.tweet.id,
             text: row.tweet.text,
@@ -140,7 +143,8 @@ impl From<ResultTweet> for TweetView {
                 id: row.account.id,
                 handle: row.account.handle,
             },
-            p_bot: row.prediction.map(|prediction| prediction.p_bot),
+            p_bot,
+            is_bot: p_bot.map(|p_bot| p_bot >= bot_threshold),
         }
     }
 }
@@ -176,7 +180,10 @@ async fn get_query(
             .filter(|_| has_more)
             .map(|row| row.tweet.id.clone());
         Some(ResultPage {
-            tweets: rows.into_iter().map(TweetView::from).collect(),
+            tweets: rows
+                .into_iter()
+                .map(|row| TweetView::new(row, state.bot_threshold))
+                .collect(),
             next_cursor,
         })
     } else {
@@ -236,9 +243,50 @@ mod tests {
                 metadata: MetadataVersion("v1".into()),
                 question: QuestionVersion("v1".into()),
             }),
+            bot_threshold: 0.5,
             query_reuse: Duration::ZERO,
         };
         router(state)
+    }
+
+    fn result_tweet(p_bot: Option<f64>) -> ResultTweet {
+        ResultTweet {
+            tweet: types::Tweet {
+                id: "t1".into(),
+                account_id: "a1".into(),
+                text: "hi".into(),
+                posted_at: None,
+                raw: json!({}),
+            },
+            account: types::Account {
+                id: "a1".into(),
+                handle: "alice".into(),
+                joined_at: None,
+                followers: None,
+                following: None,
+                tweet_count: None,
+                is_verified: None,
+                is_automated: None,
+                raw: json!({}),
+            },
+            prediction: p_bot.map(|p_bot| types::Prediction {
+                tweet_id: "t1".into(),
+                model_version: ModelVersion("m1".into()),
+                metadata_version: MetadataVersion("v1".into()),
+                question_version: QuestionVersion("v1".into()),
+                p_bot,
+                p_llm_text: None,
+                raw: json!({}),
+            }),
+        }
+    }
+
+    #[test]
+    fn is_bot_compares_p_bot_with_the_threshold() {
+        let is_bot = |p_bot| TweetView::new(result_tweet(p_bot), 0.5).is_bot;
+        assert_eq!(is_bot(Some(0.5)), Some(true));
+        assert_eq!(is_bot(Some(0.49)), Some(false));
+        assert_eq!(is_bot(None), None);
     }
 
     async fn call(request: Request<Body>) -> (StatusCode, Value) {

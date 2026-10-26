@@ -8,7 +8,7 @@ The user sends queries to the API. The API inserts each query into Postgres and 
 
 ## Terms
 
-See [glossary.md](../../docs/glossary.md): API, query, query status, query reuse, tweet, account, prediction, bot probability, result, page, cursor, scraper job, trace context, liveness check, readiness check, error code.
+See [glossary.md](../../docs/glossary.md): API, query, query status, query reuse, tweet, account, prediction, bot probability, bot threshold, result, page, cursor, scraper job, trace context, liveness check, readiness check, error code.
 
 ## How it works
 
@@ -16,7 +16,7 @@ See [glossary.md](../../docs/glossary.md): API, query, query status, query reuse
 2. `POST /queries` trims the text and checks its length. It checks for query reuse. On a match, it returns the earlier query's ID and sends no scraper job. Otherwise it inserts a `queued` query and sends a scraper job. The job carries the trace context of the request.
 3. `GET /queries/{id}` returns the query status. When the status is `done`, it also returns one page of the result.
 4. The page holds one prediction for each tweet. The API selects it with `DEFAULT_MODEL_VERSION`, `DEFAULT_METADATA_VERSION`, and `DEFAULT_QUESTION_VERSION`. A tweet without a matching prediction has `"p_bot": null`.
-5. The page carries `p_bot` only. It has no `is_bot` field.
+5. Each tweet also carries `is_bot`. It is `true` when `p_bot` is at or above `BOT_THRESHOLD`, and `false` below it. It is `null` when `p_bot` is `null`.
 6. Every error is JSON: `{ "code": …, "message": … }`.
 
 ### `POST /queries`
@@ -89,14 +89,16 @@ Content-Type: application/json
         "text": "The new phone is fine.",
         "posted_at": "2026-10-01T09:30:00Z",
         "account": { "id": "42", "handle": "alice" },
-        "p_bot": 0.04
+        "p_bot": 0.04,
+        "is_bot": false
       },
       {
         "tweet_id": "1802",
         "text": "BUY NOW best phone deal",
         "posted_at": null,
         "account": { "id": "77", "handle": "deals_bot_9" },
-        "p_bot": 0.97
+        "p_bot": 0.97,
+        "is_bot": true
       }
     ],
     "next_cursor": "1802"
@@ -174,6 +176,7 @@ Content-Type: application/json
 | `DEFAULT_MODEL_VERSION` | none | The model version of the predictions in a result. |
 | `DEFAULT_METADATA_VERSION` | none | The metadata version of the predictions in a result. |
 | `DEFAULT_QUESTION_VERSION` | none | The question version of the predictions in a result. |
+| `BOT_THRESHOLD` | none | The bot threshold, a number from 0 to 1. The API sets `is_bot` to `true` when `p_bot` is at or above it. |
 | `RUST_LOG` | Real Feel's crates at `info`, dependencies at `warn` | The log filter. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | The OTLP collector URL. Unset turns the exporter off. |
 | `AWS_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | none | The AWS client settings. See [`queue`](../queue/README.md). |
@@ -186,6 +189,7 @@ From the repository root. Postgres and LocalStack must run. The API applies the 
 export DATABASE_URL=postgres://realfeel:$POSTGRES_PASSWORD@localhost:5433/realfeel
 export SCRAPER_QUEUE_URL=http://localhost:4566/000000000000/scraper-jobs
 export DEFAULT_MODEL_VERSION=clef-flash-bf16 DEFAULT_METADATA_VERSION=v1 DEFAULT_QUESTION_VERSION=v1
+export BOT_THRESHOLD=0.5
 cargo run -p api
 ```
 

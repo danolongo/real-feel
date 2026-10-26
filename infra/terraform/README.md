@@ -6,7 +6,7 @@ This folder builds Real Feel on AWS: a VPC, two EC2 instances, RDS Postgres, fou
 
 ```text
 infra/terraform/
-  bootstrap/   the S3 bucket for the state file
+  bootstrap/   the S3 buckets for the state file and the eval set
   main/        the root configuration that wires the modules
   modules/     network, database, queues, registry, iam, compute
 ```
@@ -15,11 +15,11 @@ infra/terraform/
 
 ## Terms
 
-See [glossary.md](../../docs/glossary.md) for `bootstrap configuration`, `restart script`, `queue`, `dead-letter queue`, and `worker`.
+See [glossary.md](../../docs/glossary.md) for `bootstrap configuration`, `eval bucket`, `eval set`, `manifest`, `restart script`, `queue`, `dead-letter queue`, and `worker`.
 
 ## How it works
 
-1. You apply the bootstrap configuration once. It creates the S3 bucket for the state file.
+1. You apply the bootstrap configuration once. It creates the S3 bucket for the state file and the eval bucket.
 2. You apply the main configuration. Terraform creates the stack and writes the non-secret settings to SSM Parameter Store as `String` parameters under `/real-feel/`.
 3. Terraform creates four `SecureString` parameters with the value `placeholder`. You overwrite them with the real secrets.
 4. `deploy.yml` pushes the images and runs the restart script. The restart script reads `/real-feel/` and starts the containers.
@@ -99,6 +99,26 @@ Run every command from the repository root.
 
 9. Create the dashboard. Follow [the Datadog README](../datadog/README.md).
 
+## Store the eval set
+
+The eval set holds X content, so it lives in the private eval bucket and never in the repository. Only your SSO profile reads it. No instance role and no CI role has access.
+
+1. Apply the bootstrap configuration again. It creates the eval bucket.
+
+   ```bash
+   terraform -chdir=infra/terraform/bootstrap apply
+   ```
+
+2. Copy the eval set and its manifest to the bucket.
+
+   ```bash
+   BUCKET=$(terraform -chdir=infra/terraform/bootstrap output -raw eval_bucket_name)
+   aws s3 cp <eval set file> "s3://$BUCKET/"
+   aws s3 cp <manifest file> "s3://$BUCKET/"
+   ```
+
+`terraform destroy` on the main configuration never deletes the eval bucket.
+
 ## Send one query
 
 Send the request to the Elastic IP of the API. Your IP must match `operator_cidr`.
@@ -116,7 +136,7 @@ curl -s "http://$API/queries/<query_id>"
 
 ## Teardown
 
-Destroy the main configuration. The bootstrap configuration stays, because the state bucket has `prevent_destroy`.
+Destroy the main configuration. The bootstrap configuration stays, because the state bucket and the eval bucket have `prevent_destroy`.
 
 ```bash
 terraform -chdir=infra/terraform/main destroy \
@@ -140,14 +160,14 @@ These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-
 | ECR storage, about 1 GB | 0.10 USD/GB-month | 0.10 |
 | SQS, four queues | first 1 million requests free, then 0.40 USD per million | 0 to 0.50 |
 | Secrets Manager, one secret | 0.40 USD/month | 0.40 |
-| S3 state bucket | a few KB | under 0.01 |
+| S3 state bucket and eval bucket | a few MB | under 0.01 |
 | **Total** | | **about 46 to 50** |
 
 - The two instances hold two public IPv4 addresses. A third address appears while you replace an instance.
 - Data transfer, CloudWatch Logs, and the Datadog subscription cost extra.
 - RDS keeps one day of backups, which the free backup allowance covers.
 - The twitterapi.io and Cloudflare charges for real queries cost extra.
-- You run `terraform destroy` at the end of every work session. A destroyed stack costs only the S3 state bucket. A running stack costs about 11 USD a week.
+- You run `terraform destroy` at the end of every work session. A destroyed stack costs only the two S3 buckets. A running stack costs about 11 USD a week.
 - You run `apply` and `deploy.yml` at the start of the next session, then repeat steps 5 to 8.
 
 ## Failure modes
