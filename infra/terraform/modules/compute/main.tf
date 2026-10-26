@@ -244,19 +244,6 @@ resource "aws_instance" "api" {
   }
 }
 
-resource "aws_eip" "api" {
-  domain = "vpc"
-
-  tags = {
-    Name = "real-feel-api"
-  }
-}
-
-resource "aws_eip_association" "api" {
-  instance_id   = aws_instance.api.id
-  allocation_id = aws_eip.api.id
-}
-
 resource "aws_instance" "worker" {
   ami                         = data.aws_ssm_parameter.al2023_ami.value
   instance_type               = var.instance_type
