@@ -14,6 +14,7 @@ struct Config {
     versions: Versions,
     bot_threshold: f64,
     query_reuse: Duration,
+    quota_enabled: bool,
 }
 
 impl Config {
@@ -29,6 +30,9 @@ impl Config {
                     .map_err(|_| format!("QUERY_REUSE_SECS is not a number: {secs}"))?,
                 Err(_) => 3600,
             }),
+            quota_enabled: parse_quota_enabled(
+                std::env::var("QUERY_QUOTA_ENABLED").ok().as_deref(),
+            )?,
             bot_threshold: {
                 let threshold = var("BOT_THRESHOLD")?;
                 threshold
@@ -41,6 +45,16 @@ impl Config {
                 question: QuestionVersion(var("DEFAULT_QUESTION_VERSION")?),
             },
         })
+    }
+}
+
+fn parse_quota_enabled(value: Option<&str>) -> Result<bool, String> {
+    match value {
+        None | Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        Some(other) => Err(format!(
+            "QUERY_QUOTA_ENABLED must be true or false: {other}"
+        )),
     }
 }
 
@@ -62,7 +76,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         versions: Arc::new(config.versions),
         bot_threshold: config.bot_threshold,
         query_reuse: config.query_reuse,
+        quota_enabled: config.quota_enabled,
     };
+    if !config.quota_enabled {
+        tracing::warn!("the query quota is off");
+    }
 
     let listener = TcpListener::bind(&config.addr).await?;
     tracing::info!(addr = %config.addr, "api listening");
@@ -72,4 +90,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     tracing::info!("api stopped");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_quota_enabled;
+
+    #[test]
+    fn quota_is_on_when_unset_or_true() {
+        assert_eq!(parse_quota_enabled(None), Ok(true));
+        assert_eq!(parse_quota_enabled(Some("true")), Ok(true));
+        assert_eq!(parse_quota_enabled(Some("false")), Ok(false));
+    }
+
+    #[test]
+    fn any_other_value_fails() {
+        for value in ["", "TRUE", "0", "off", "yes"] {
+            let error = parse_quota_enabled(Some(value)).unwrap_err();
+            assert!(error.contains("QUERY_QUOTA_ENABLED"), "{error}");
+        }
+    }
 }

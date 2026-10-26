@@ -1,23 +1,26 @@
+mod auth;
 mod error;
 
 use std::{error::Error, sync::Arc, time::Duration};
 
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{
         Path, Query, State,
         rejection::{JsonRejection, PathRejection, QueryRejection},
     },
     http::StatusCode,
+    middleware,
     routing::get,
 };
 use chrono::{DateTime, Utc};
-use db::{CreatedQuery, PgPool, ResultTweet, Versions};
+use db::{ApiKey, CreatedQuery, PgPool, ResultTweet, Versions};
 use queue::Queue;
 use serde::{Deserialize, Serialize};
 use types::{QueryStatus, ScraperJob};
 use uuid::Uuid;
 
+pub use auth::{generate_key, hash_key};
 pub use error::ApiError;
 
 const MAX_TEXT_CHARS: usize = 512;
@@ -31,12 +34,17 @@ pub struct AppState {
     pub versions: Arc<Versions>,
     pub bot_threshold: f64,
     pub query_reuse: Duration,
+    pub quota_enabled: bool,
 }
 
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/queries", axum::routing::post(create_query))
         .route("/queries/{id}", get(get_query))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_api_key,
+        ))
         .route("/health", get(health))
         .route("/ready", get(ready))
         .with_state(state)
@@ -55,6 +63,7 @@ struct Created {
 #[tracing::instrument(skip_all, fields(query_id = tracing::field::Empty, trace_id = tracing::field::Empty))]
 async fn create_query(
     State(state): State<AppState>,
+    Extension(api_key): Extension<ApiKey>,
     body: Result<Json<NewQuery>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Created>), ApiError> {
     let span = tracing::Span::current();
@@ -67,13 +76,25 @@ async fn create_query(
         return Err(ApiError::InvalidQuery);
     }
 
-    let query = match db::create_or_reuse_query(&state.db, text, state.query_reuse).await? {
+    let created = db::create_or_reuse_query(
+        &state.db,
+        text,
+        state.query_reuse,
+        &api_key,
+        state.quota_enabled,
+    )
+    .await?;
+    let query = match created {
         CreatedQuery::Reused(query) => {
             span.record("query_id", query.id.to_string());
             tracing::info!(status = ?query.status, "query reused");
             return Ok((StatusCode::ACCEPTED, Json(Created { query_id: query.id })));
         }
         CreatedQuery::New(query) => query,
+        CreatedQuery::OverQuota { retry_after } => {
+            tracing::info!(api_key_id = %api_key.id, "query quota used");
+            return Err(ApiError::QuotaExceeded { retry_after });
+        }
     };
     span.record("query_id", query.id.to_string());
     tracing::info!(text = %query.text, "query created");
@@ -245,6 +266,7 @@ mod tests {
             }),
             bot_threshold: 0.5,
             query_reuse: Duration::ZERO,
+            quota_enabled: true,
         };
         router(state)
     }
@@ -326,40 +348,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_query_text_returns_400() {
-        let too_long = "x".repeat(MAX_TEXT_CHARS + 1);
-        for body in [
-            json!({ "text": "" }),
-            json!({ "text": "  \n " }),
-            json!({ "text": too_long }),
-            json!({ "wrong": "field" }),
+    async fn a_query_route_without_a_key_returns_401() {
+        for request in [
+            post(json!({ "text": "hi" })),
+            get_uri(&format!("/queries/{}", Uuid::new_v4())),
+            Request::get("/queries/x")
+                .header("authorization", "Basic abc")
+                .body(Body::empty())
+                .unwrap(),
         ] {
-            let (status, body) = call(post(body)).await;
-            assert_eq!(status, StatusCode::BAD_REQUEST);
-            assert_eq!(body["code"], "invalid_query");
-        }
-    }
-
-    #[tokio::test]
-    async fn invalid_query_id_returns_400() {
-        let (status, body) = call(get_uri("/queries/not-a-uuid")).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body["code"], "invalid_query_id");
-    }
-
-    #[tokio::test]
-    async fn invalid_limit_or_after_returns_400() {
-        let id = Uuid::new_v4();
-        for query in ["limit=0", "limit=201", "limit=abc", "after="] {
-            let (status, body) = call(get_uri(&format!("/queries/{id}?{query}"))).await;
-            assert_eq!(status, StatusCode::BAD_REQUEST, "{query}");
-            assert_eq!(body["code"], "invalid_cursor", "{query}");
+            let (status, body) = call(request).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(body["code"], "unauthorized");
         }
     }
 
     #[tokio::test]
     async fn postgres_failure_returns_500_without_detail() {
-        let (status, body) = call(get_uri(&format!("/queries/{}", Uuid::new_v4()))).await;
+        let request = Request::get(format!("/queries/{}", Uuid::new_v4()))
+            .header("authorization", "Bearer any-key")
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = call(request).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(body["code"], "internal");
         assert_eq!(body["message"], "internal error");

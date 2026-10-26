@@ -108,14 +108,20 @@ async fn a_query_over_http_ends_done_with_a_prediction_for_every_tweet() {
         }),
         bot_threshold: 0.5,
         query_reuse: Duration::ZERO,
+        quota_enabled: true,
     });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
 
+    let key = api::generate_key();
+    db::insert_api_key(&db, "e2e", &api::hash_key(&key), 10)
+        .await
+        .unwrap();
     let http = reqwest::Client::new();
     let exchange = async {
         let created: Value = http
             .post(format!("{base}/queries"))
+            .bearer_auth(&key)
             .json(&json!({ "text": "ai" }))
             .send()
             .await
@@ -126,7 +132,15 @@ async fn a_query_over_http_ends_done_with_a_prediction_for_every_tweet() {
         let url = format!("{base}/queries/{}", created["query_id"].as_str().unwrap());
         tokio::time::timeout(WAIT, async {
             loop {
-                let query: Value = http.get(&url).send().await.unwrap().json().await.unwrap();
+                let query: Value = http
+                    .get(&url)
+                    .bearer_auth(&key)
+                    .send()
+                    .await
+                    .unwrap()
+                    .json()
+                    .await
+                    .unwrap();
                 assert_ne!(query["status"], "failed", "{query}");
                 if query["status"] == "done" {
                     break query;

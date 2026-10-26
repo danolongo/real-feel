@@ -26,6 +26,7 @@ USER realfeel
 
 FROM runtime AS api
 COPY --from=build /src/target/release/api /usr/local/bin/api
+COPY --from=build /src/target/release/api-key /usr/local/bin/api-key
 ENTRYPOINT ["/usr/local/bin/api"]
 
 FROM runtime AS worker
