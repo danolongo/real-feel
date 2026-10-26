@@ -38,10 +38,18 @@ pub struct ExperimentSummary {
 }
 
 impl ExperimentSummary {
+    fn items(&self) -> usize {
+        let (tune, test) = (&self.labels.tune, &self.labels.test);
+        tune.human + tune.bot + tune.agent + test.human + test.bot + test.agent
+    }
+
     fn name(&self) -> String {
         format!(
-            "{} / {} / {}",
-            self.model_version.0, self.metadata_version.0, self.question_version.0
+            "{} / {} / {} / {} items",
+            self.model_version.0,
+            self.metadata_version.0,
+            self.question_version.0,
+            self.items()
         )
     }
 }
@@ -55,17 +63,18 @@ pub fn render(summaries: &[ExperimentSummary]) -> String {
     let mut out = String::new();
     out.push_str("## Comparison\n\n");
     out.push_str(
-        "| Model version | Metadata version | Question version | Bot threshold | Accuracy | Precision | Recall | F1 | ROC-AUC | Brier | ECE | Recall (bot) | Recall (agent) |\n",
+        "| Model version | Metadata version | Question version | Items | Bot threshold | Accuracy | Precision | Recall | F1 | ROC-AUC | Brier | ECE | Recall (bot) | Recall (agent) |\n",
     );
-    out.push_str("|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
+    out.push_str("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
     for summary in summaries {
         let m = &summary.metrics;
         let _ = writeln!(
             out,
-            "| `{}` | `{}` | `{}` | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {} | {:.3} | {:.3} | {} | {} |",
+            "| `{}` | `{}` | `{}` | {} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {} | {:.3} | {:.3} | {} | {} |",
             summary.model_version.0,
             summary.metadata_version.0,
             summary.question_version.0,
+            summary.items(),
             m.threshold,
             m.accuracy,
             m.precision,
@@ -213,9 +222,9 @@ mod tests {
         assert_eq!(md.matches("```mermaid").count(), 2);
         assert_eq!(md.matches("xychart-beta").count(), 2);
         assert_eq!(md.matches("| `fake` |").count(), 2);
-        assert!(
-            md.contains("| `fake` | `v1` | `v1` | 0.500 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |")
-        );
+        assert!(md.contains(
+            "| `fake` | `v1` | `v1` | 4 | 0.500 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |"
+        ));
     }
 
     #[test]
@@ -231,7 +240,7 @@ mod tests {
     fn render_adds_label_counts_and_a_repeatability_table_only_when_repeats_exist() {
         let plain = render(&[summary("fake", "v1")]);
         assert!(plain.contains("## Label counts"));
-        assert!(plain.contains("| fake / v1 / v1 | 1 | 1 | 0 | 1 | 0 | 1 |"));
+        assert!(plain.contains("| fake / v1 / v1 / 4 items | 1 | 1 | 0 | 1 | 0 | 1 |"));
         assert!(!plain.contains("## Repeatability"));
 
         let mut repeated = summary("fake", "v1");
@@ -244,7 +253,7 @@ mod tests {
         });
         let md = render(&[repeated]);
         assert!(md.contains("## Repeatability"));
-        assert!(md.contains("| fake / v1 / v1 | 5 | 50 | 0.0100 | 0.2000 | 0.040 |"));
+        assert!(md.contains("| fake / v1 / v1 / 4 items | 5 | 50 | 0.0100 | 0.2000 | 0.040 |"));
     }
 
     #[test]
