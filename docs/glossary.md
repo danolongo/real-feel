@@ -110,7 +110,7 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | Term | Part of speech | Definition | Do not use |
 |------|----------------|------------|------------|
 | eval set | noun | A fixed collection of tweets and accounts, each with a label. | test set, benchmark data |
-| label agent | noun | The Claude Haiku session that reads eval set items and writes their labels by the criteria in `crates/eval/LABELS.md`. | annotator, labeler |
+| label agent | noun | The Claude Haiku session that reads eval set items and writes their labels by the label criteria. The criteria stay out of git, next to the eval set. | annotator, labeler |
 | tune split | noun | The 30% of eval set accounts that set the bot threshold. | train set, dev set |
 | test split | noun | The 70% of eval set accounts that every comparison in an eval report uses. | holdout, test set |
 | calibration curve | noun | A chart of mean bot probability against the share of bots, one point for each of ten bins. | reliability diagram |

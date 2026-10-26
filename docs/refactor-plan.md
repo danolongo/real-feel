@@ -556,7 +556,7 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
   - The fake returns a different bot probability for each tweet ID, so metrics on a fixture produce no ties.
 - [x] **4.2** `crates/scraper`, `crates/eval`: You add `eval collect`. It searches twitterapi.io for a list of queries and fetches the recent tweets of each new account. It writes one JSON Lines file with one item per account: the account, the tweet that matched the query, and the recent tweets. The binary prints the expected twitterapi.io cost before it calls the API, and asks you to confirm. You run it, because it needs `TWITTERAPI_KEY`.
 - [x] **4.3** You settle O3. A label agent reads each item and writes a label (`human`, `bot`, or `agent`), an `is_llm_text` flag for each tweet, a confidence, and a one-line reason.
-  - The label agent is a Claude Haiku session. `crates/eval/LABELS.md` holds its criteria.
+  - The label agent is a Claude Haiku session. Its criteria live next to the eval set, in the local `eval-data/LABELS.md`. Git leaves them out, because their examples quote X accounts.
   - The label agent first writes labels for a batch of 20 items. You review them. You accept the criteria or change them.
   - The label agent then writes labels for 300 to 500 items. You review a random 10% of them and record your agreement rate in the eval report.
   - The eval report says that an LLM wrote the labels. The agreement rate bounds every accuracy number in it.
@@ -584,7 +584,7 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 - [x] **4.15** CI runs one experiment on a committed ten-item fixture eval set with the fake. The fixture holds both classes, so ROC-AUC and the calibration curve have real values.
 - [ ] **4.16** You change `DEFAULT_METADATA_VERSION`, `DEFAULT_QUESTION_VERSION`, and `BOT_THRESHOLD` in the main configuration. You run `apply`, then `deploy.yml`. The API and the workers read the same values, so they change together.
 
-**Docs:** `crates/eval/README.md`, `crates/eval/LABELS.md`, `docs/reports/eval-m4.md`, decision records for O3 and O4 and the default metadata version.
+**Docs:** `crates/eval/README.md`, `docs/reports/eval-m4.md`, decision records for O3 and O4 and the default metadata version.
 
 **Gate**
 
