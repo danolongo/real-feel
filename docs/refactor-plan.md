@@ -538,7 +538,6 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 - [x] A merge to `main` deploys new images with no manual steps.
 - [x] One real query completes on AWS.
 - [x] Datadog shows one trace that spans the API, the scraper worker, and the classifier worker.
-- [ ] `terraform destroy` followed by `terraform apply` and one `deploy.yml` run rebuilds the stack. You prove it once.
 - [x] The AWS Budgets alert covers the new resources.
 
 ---
@@ -617,6 +616,7 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 - [ ] A burst from one IP address above the WAF limit gets `429` from WAF.
 - [ ] `curl https://<domain>/health` answers over a valid certificate. HTTP redirects to HTTPS. The API instance answers no request from the internet directly.
 - [ ] AWS has received the GPU quota application.
+- [ ] `terraform destroy` followed by `terraform apply` and one `deploy.yml` run rebuilds the stack, with the ALB, WAF, and certificate. You prove it once. This item moved from M3.
 
 ---
 
