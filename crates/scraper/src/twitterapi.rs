@@ -66,6 +66,31 @@ fn parse_date(date: &str) -> Result<DateTime<Utc>, Error> {
     Ok(DateTime::parse_from_str(date, DATE_FORMAT)?.with_timezone(&Utc))
 }
 
+/// Maps one twitterapi.io tweet object to a tweet and the account that posted it.
+fn parse_tweet(raw: Value) -> Result<(Tweet, Account), Error> {
+    let tweet: SearchTweet = serde_json::from_value(raw.clone())?;
+    let author: SearchAuthor = serde_json::from_value(tweet.author.clone())?;
+    let account = Account {
+        id: author.id,
+        handle: author.user_name,
+        joined_at: author.created_at.as_deref().map(parse_date).transpose()?,
+        followers: author.followers,
+        following: author.following,
+        tweet_count: author.statuses_count,
+        is_verified: author.is_blue_verified,
+        is_automated: author.is_automated,
+        raw: tweet.author,
+    };
+    let tweet = Tweet {
+        id: tweet.id,
+        account_id: account.id.clone(),
+        text: tweet.text,
+        posted_at: Some(parse_date(&tweet.created_at)?),
+        raw,
+    };
+    Ok((tweet, account))
+}
+
 /// Searches X through twitterapi.io.
 #[derive(Debug, Clone)]
 pub struct TwitterApi {
@@ -135,8 +160,7 @@ impl TwitterApi {
     }
 
     /// Fetches up to `limit` of the newest tweets of the account `handle`, newest first. Stops
-    /// early when the account has no more tweets. Replies are left out. Maps each tweet as
-    /// `scrape` does.
+    /// early when the account has no more tweets. Replies are left out.
     #[tracing::instrument(name = "twitterapi_recent_tweets", skip(self))]
     pub async fn recent_tweets(&self, handle: &str, limit: usize) -> Result<Vec<Tweet>, Error> {
         let mut tweets: Vec<Tweet> = Vec::new();
@@ -161,16 +185,9 @@ impl TwitterApi {
             );
             let empty = page.data.tweets.is_empty();
             for raw in page.data.tweets {
-                let tweet: SearchTweet = serde_json::from_value(raw.clone())?;
-                let author: SearchAuthor = serde_json::from_value(tweet.author)?;
+                let (tweet, _) = parse_tweet(raw)?;
                 if tweet_ids.insert(tweet.id.clone()) {
-                    tweets.push(Tweet {
-                        id: tweet.id,
-                        account_id: author.id,
-                        text: tweet.text,
-                        posted_at: Some(parse_date(&tweet.created_at)?),
-                        raw,
-                    });
+                    tweets.push(tweet);
                 }
             }
             if empty || !page.has_next_page {
@@ -203,29 +220,12 @@ impl Scraper for TwitterApi {
                 "twitterapi.io page fetched"
             );
             for raw in page.tweets {
-                let tweet: SearchTweet = serde_json::from_value(raw.clone())?;
-                let author: SearchAuthor = serde_json::from_value(tweet.author.clone())?;
-                if account_ids.insert(author.id.clone()) {
-                    accounts.push(Account {
-                        id: author.id.clone(),
-                        handle: author.user_name,
-                        joined_at: author.created_at.as_deref().map(parse_date).transpose()?,
-                        followers: author.followers,
-                        following: author.following,
-                        tweet_count: author.statuses_count,
-                        is_verified: author.is_blue_verified,
-                        is_automated: author.is_automated,
-                        raw: tweet.author,
-                    });
+                let (tweet, account) = parse_tweet(raw)?;
+                if account_ids.insert(account.id.clone()) {
+                    accounts.push(account);
                 }
                 if tweet_ids.insert(tweet.id.clone()) {
-                    tweets.push(Tweet {
-                        id: tweet.id,
-                        account_id: author.id,
-                        text: tweet.text,
-                        posted_at: Some(parse_date(&tweet.created_at)?),
-                        raw,
-                    });
+                    tweets.push(tweet);
                 }
             }
             if !page.has_next_page {
