@@ -3,6 +3,7 @@
 # Starts the API and both worker roles, waits for the status `done`, and checks the result.
 # Passes when the result holds at least 10 tweets and every tweet has a bot probability.
 # Writes every log line of the query, in order, to target/smoke/run.log and prints its Jaeger trace link.
+# Creates an API key for the run and revokes it at the end.
 # Needs `docker compose up -d`, the applied migrations, and TWITTERAPI_KEY,
 # CLOUDFLARE_ACCOUNT_ID, and CLOUDFLARE_API_TOKEN in .env.
 # One run with TWITTERAPI_PAGES=5 costs about $0.02 at twitterapi.io.
@@ -58,14 +59,22 @@ for _ in $(seq 30); do
   sleep 1
 done
 
+# The API applies the migrations at startup, so the key table exists once /health answers.
+key_output=$(target/debug/api-key create --name smoke --quota 100 2>/dev/null)
+key_id=$(awk '$1 == "id:" {print $2}' <<<"$key_output")
+key=$(awk '$1 == "key:" {print $2}' <<<"$key_output")
+revoke_key() { target/debug/api-key revoke --id "$key_id" >/dev/null || true; }
+trap 'revoke_key; stop' EXIT
+auth=(-H "Authorization: Bearer $key")
+
 start=$(date +%s)
 deadline=$((start + ${SMOKE_TIMEOUT_SECS:-600}))
 id=$(jq -n --arg text "$QUERY" '{text: $text}' |
-  curl -sSf "$API/queries" -H 'Content-Type: application/json' --data @- | jq -r .query_id)
+  curl -sSf "$API/queries" "${auth[@]}" -H 'Content-Type: application/json' --data @- | jq -r .query_id)
 echo "query $id: $QUERY"
 
 while :; do
-  status=$(curl -sSf "$API/queries/$id" | jq -r .status)
+  status=$(curl -sSf "${auth[@]}" "$API/queries/$id" | jq -r .status)
   case $status in done | failed) break ;; esac
   if [ "$(date +%s)" -ge "$deadline" ]; then
     echo "timed out in status $status" >&2
@@ -78,7 +87,7 @@ seconds=$(($(date +%s) - start))
 tweets=0 missing=0 after=""
 if [ "$status" = done ]; then
   while :; do
-    page=$(curl -sSf "$API/queries/$id?limit=200$after")
+    page=$(curl -sSf "${auth[@]}" "$API/queries/$id?limit=200$after")
     tweets=$((tweets + $(jq '.result.tweets | length' <<<"$page")))
     missing=$((missing + $(jq '[.result.tweets[] | select(.p_bot == null)] | length' <<<"$page")))
     cursor=$(jq -r '.result.next_cursor // empty' <<<"$page")
@@ -109,9 +118,11 @@ echo "Log of the run: $OUT/run.log ($(wc -l <"$OUT/run.log" | tr -d ' ') lines)"
 [ -n "$trace_id" ] && echo "Trace: http://localhost:16686/trace/$trace_id"
 
 if [ "$status" = done ] && [ "$tweets" -ge 10 ] && [ "$missing" -eq 0 ]; then
+  revoke_key
   echo "PASS"
 else
+  revoke_key
   echo "FAIL. Logs: $OUT/" >&2
-  curl -sS "$API/queries/$id" | jq '{status, error}' >&2
+  curl -sS "${auth[@]}" "$API/queries/$id" | jq '{status, error}' >&2
   exit 1
 fi
