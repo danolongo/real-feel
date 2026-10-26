@@ -58,6 +58,23 @@ pub enum Label {
 }
 
 impl Label {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Label::Human => "human",
+            Label::Bot => "bot",
+            Label::Agent => "agent",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Label> {
+        match text {
+            "human" => Some(Label::Human),
+            "bot" => Some(Label::Bot),
+            "agent" => Some(Label::Agent),
+            _ => None,
+        }
+    }
+
     /// An agent account is a bot that an LLM runs.
     pub fn is_bot(self) -> bool {
         matches!(self, Label::Bot | Label::Agent)
@@ -127,6 +144,26 @@ pub fn join(collected: Vec<CollectedItem>, records: Vec<LabelRecord>) -> Result<
             confidence: record.confidence,
         });
     }
+    Ok(joined)
+}
+
+/// Reads collected files and label record files, joins them, and writes the eval set file.
+/// Label records may carry extra fields. `serde` ignores them.
+pub fn join_files(
+    collected: &[std::path::PathBuf],
+    labels: &[std::path::PathBuf],
+    out: &Path,
+) -> Result<Joined, Error> {
+    let mut items = Vec::new();
+    for path in collected {
+        items.extend(read_jsonl::<CollectedItem>(path)?);
+    }
+    let mut records = Vec::new();
+    for path in labels {
+        records.extend(read_jsonl::<LabelRecord>(path)?);
+    }
+    let joined = join(items, records)?;
+    write_jsonl(out, &joined.items)?;
     Ok(joined)
 }
 
@@ -272,6 +309,35 @@ mod tests {
         }
         let parsed: Vec<CollectedItem> = parse_jsonl(&text).unwrap();
         assert_eq!(parsed, items);
+    }
+
+    #[test]
+    fn join_files_ignores_extra_label_fields_and_writes_the_eval_set() {
+        let dir = std::env::temp_dir().join(format!("eval-join-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (collected_path, labels_path, out) = (
+            dir.join("collected.jsonl"),
+            dir.join("labels.jsonl"),
+            dir.join("eval-set.jsonl"),
+        );
+        write_jsonl(
+            &collected_path,
+            &[collected("1", "t1"), collected("2", "t2")],
+        )
+        .unwrap();
+        let mut labeled =
+            serde_json::to_value(record("1", RecordLabel::Bot, &[("t1", true)])).unwrap();
+        labeled["source"] = json!("agent");
+        labeled["changed_from"] = json!("human");
+        std::fs::write(&labels_path, format!("{labeled}\n")).unwrap();
+
+        let joined = join_files(&[collected_path], &[labels_path], &out).unwrap();
+        assert_eq!(joined.items.len(), 1);
+        assert_eq!(joined.dropped_unlabeled, 1);
+        let written: Vec<EvalItem> = read_jsonl(&out).unwrap();
+        assert_eq!(written, joined.items);
+        assert_eq!(written[0].is_llm_text, Some(true));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

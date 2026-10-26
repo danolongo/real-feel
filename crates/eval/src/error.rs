@@ -24,4 +24,18 @@ pub enum Error {
     BadSetting(&'static str),
     #[error("the queries file holds no query")]
     NoQueries,
+    #[error("cannot build a model input: {0}")]
+    Metadata(#[from] metadata::Error),
+    #[error("the backend failed: {0}")]
+    Classifier(#[from] classifier::Error),
+    #[error("Postgres failed: {0}")]
+    Db(#[from] sqlx::Error),
+    #[error("the backend answered {got} predictions for {sent} model inputs")]
+    PredictionCount { sent: usize, got: usize },
+    #[error("experiment {0} does not exist")]
+    NoSuchExperiment(uuid::Uuid),
+    #[error("the stored label {0:?} is not human, bot, or agent")]
+    BadLabel(String),
+    #[error("the eval set holds no item")]
+    EmptyEvalSet,
 }
