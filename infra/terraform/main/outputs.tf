@@ -1,6 +1,6 @@
-output "api_public_ip" {
-  description = "Elastic IP of the API instance. The API listens on http://<this IP>."
-  value       = module.compute.api_public_ip
+output "alb_dns_name" {
+  description = "DNS name of the ALB. The domain name points here."
+  value       = module.edge.alb_dns_name
 }
 
 output "github_role_arn" {

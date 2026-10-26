@@ -1,7 +1,17 @@
 module "network" {
   source = "../modules/network"
+}
 
-  operator_cidr = var.operator_cidr
+# The bootstrap configuration owns the zone and the certificate, so a destroy
+# of this configuration keeps both.
+data "aws_route53_zone" "main" {
+  name = var.domain_name
+}
+
+data "aws_acm_certificate" "main" {
+  domain      = var.domain_name
+  statuses    = ["ISSUED"]
+  most_recent = true
 }
 
 module "database" {
@@ -55,8 +65,23 @@ module "compute" {
     # The best F1 on the tune split of the eval set.
     BOT_THRESHOLD = "0.123"
     # BOT_THRESHOLD = "0.173" # 0.123 plus a 0.05 margin for searches the eval set does not cover.
-    BATCH_SIZE = "25"
+    QUERY_QUOTA_ENABLED = "true"
+    BATCH_SIZE          = "25"
     # Stays below the 300 s visibility timeout of the queues.
     JOB_DEADLINE_SECS = "240"
   }
+}
+
+module "edge" {
+  source = "../modules/edge"
+
+  vpc_id                 = module.network.vpc_id
+  public_subnet_ids      = module.network.public_subnet_ids
+  alb_sg_id              = module.network.alb_sg_id
+  api_instance_id        = module.compute.api_instance_id
+  domain_name            = var.domain_name
+  zone_id                = data.aws_route53_zone.main.zone_id
+  certificate_arn        = data.aws_acm_certificate.main.arn
+  waf_rate_limit         = var.waf_rate_limit
+  waf_rate_limit_enabled = var.waf_rate_limit_enabled
 }
