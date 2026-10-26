@@ -12,9 +12,9 @@ See [glossary.md](../../docs/glossary.md): tweet, account, metadata, metadata ve
 
 ## How it works
 
-1. The classifier calls `build` with a tweet, its account, a metadata version, and a question version.
-2. `build` lays out `text` as the metadata version defines.
-3. `build` sets `question` to the wording that the question version defines.
+1. The classifier calls `build` with a tweet, its account, the recent tweets of the account, a metadata version, and a question version. The worker passes an empty slice of recent tweets, because production does not fetch them yet.
+2. `build` lays out `state` as the metadata version defines. `state` is a JSON string (`v1`) or a JSON object (`v2` and later).
+3. `build` sets `questions` to the questions that the question version defines. Each question has an `id` and its `instructions`. `questions` always holds the question `bot`. It can also hold the question `llm_text`.
 4. `build` returns a model input. It copies the tweet ID and both versions into the model input.
 5. `build` is pure. The same tweet, account, and versions always give the same model input.
 6. An unknown metadata version or question version returns an `Error`.
@@ -23,17 +23,17 @@ See [glossary.md](../../docs/glossary.md): tweet, account, metadata, metadata ve
 
 | Field | Value |
 |-------|-------|
-| `text` | The tweet text. Nothing else. |
+| `state` | The tweet text as a JSON string. Nothing else. |
 | `tweet_id` | `tweet.id`. |
 | `metadata_version` | `v1`. |
 
-`v1` reads no account field and no other tweet field.
+`v1` reads no account field, no recent tweet, and no other tweet field.
 
 ### Question version `v1`
 
 | Field | Value |
 |-------|-------|
-| `question` | `Is the account behind this tweet a bot?` |
+| `questions` | One question: `id` `bot`, `instructions` `Is the account behind this tweet a bot?` |
 | `question_version` | `v1`. |
 
 ## Test it

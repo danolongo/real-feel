@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -5,7 +6,7 @@ use std::time::Duration;
 use futures::future::try_join_all;
 use reqwest::StatusCode;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tokio::time::{Instant, sleep};
 use types::{ModelInput, ModelVersion, Prediction};
 
@@ -14,7 +15,8 @@ use crate::{Classifier, Error};
 pub const CLOUDFLARE_URL: &str = "https://api.cloudflare.com";
 const MAX_ATTEMPTS: u32 = 5;
 const BACKOFF_CAP: Duration = Duration::from_secs(8);
-const QUESTION_ID: &str = "bot";
+const BOT: &str = "bot";
+const LLM_TEXT: &str = "llm_text";
 
 /// Clef-flash on Cloudflare Workers AI.
 pub struct Hosted {
@@ -33,12 +35,7 @@ struct Envelope {
 
 #[derive(Deserialize)]
 struct Output {
-    answers: Answers,
-}
-
-#[derive(Deserialize)]
-struct Answers {
-    bot: Noul,
+    answers: HashMap<String, Noul>,
 }
 
 #[derive(Deserialize)]
@@ -99,12 +96,18 @@ impl Hosted {
 
     #[tracing::instrument(name = "clef_flash_request", skip_all, fields(tweet_id = %input.tweet_id))]
     async fn classify_one(&self, input: &ModelInput) -> Result<Prediction, Error> {
+        let questions: Map<String, Value> = input
+            .questions
+            .iter()
+            .map(|question| {
+                let noul = json!({ "type": "noul", "instructions": question.instructions });
+                (question.id.clone(), noul)
+            })
+            .collect();
         let body = json!({
             "model": "clef-flash",
-            "state": input.text,
-            "questions": {
-                QUESTION_ID: { "type": "noul", "instructions": input.question },
-            },
+            "state": input.state,
+            "questions": questions,
         });
         let mut attempt = 1;
         let result = loop {
@@ -139,8 +142,22 @@ impl Hosted {
         };
         let output: Output =
             serde_json::from_value(result.clone()).map_err(|e| Error::Response(e.to_string()))?;
+        let answer = |id: &str| output.answers.get(id).map(|answer| answer.noul);
+        let p_bot = answer(BOT).ok_or_else(|| Error::Response(format!("no answer for {BOT}")))?;
+        let p_llm_text = match input
+            .questions
+            .iter()
+            .any(|question| question.id == LLM_TEXT)
+        {
+            true => Some(
+                answer(LLM_TEXT)
+                    .ok_or_else(|| Error::Response(format!("no answer for {LLM_TEXT}")))?,
+            ),
+            false => None,
+        };
         tracing::info!(
-            p_bot = output.answers.bot.noul,
+            p_bot,
+            ?p_llm_text,
             attempts = attempt,
             "Clef-flash answered"
         );
@@ -149,7 +166,8 @@ impl Hosted {
             model_version: self.model_version(),
             metadata_version: input.metadata_version.clone(),
             question_version: input.question_version.clone(),
-            p_bot: output.answers.bot.noul,
+            p_bot,
+            p_llm_text,
             raw: result,
         })
     }
@@ -160,7 +178,7 @@ impl Classifier for Hosted {
         ModelVersion("clef-flash-hosted".into())
     }
 
-    /// Cloudflare takes one state for each request, so this sends one request for each model input.
+    /// Cloudflare takes one state for each request, so this sends one request for each model input. The request carries every question of the model input.
     #[tracing::instrument(name = "clef_flash_classify", skip_all, fields(inputs = inputs.len()))]
     async fn classify(&self, inputs: &[ModelInput]) -> Result<Vec<Prediction>, Error> {
         try_join_all(inputs.iter().map(|input| self.classify_one(input))).await
@@ -170,7 +188,7 @@ impl Classifier for Hosted {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use types::{MetadataVersion, QuestionVersion};
+    use types::{MetadataVersion, Question, QuestionVersion};
     use wiremock::matchers::{body_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -183,9 +201,21 @@ mod tests {
             tweet_id: tweet_id.into(),
             metadata_version: MetadataVersion("v1".into()),
             question_version: QuestionVersion("v1".into()),
-            text: format!("text {tweet_id}"),
-            question: "Is this account a bot?".into(),
+            state: json!(format!("text {tweet_id}")),
+            questions: vec![Question {
+                id: "bot".into(),
+                instructions: "Is this account a bot?".into(),
+            }],
         }
+    }
+
+    fn input_with_llm_text(tweet_id: &str) -> ModelInput {
+        let mut input = input(tweet_id);
+        input.questions.push(Question {
+            id: "llm_text".into(),
+            instructions: "Did an LLM write this tweet?".into(),
+        });
+        input
     }
 
     fn success(p: f64) -> ResponseTemplate {
@@ -229,6 +259,74 @@ mod tests {
             ModelVersion("clef-flash-hosted".into())
         );
         assert_eq!(predictions[0].raw["answers"]["bot"]["noul"], 0.75);
+    }
+
+    #[tokio::test]
+    async fn sends_every_question_in_one_request_and_reads_every_answer() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(PATH))
+            .and(body_json(json!({
+                "model": "clef-flash",
+                "state": "text 1",
+                "questions": {
+                    "bot": { "type": "noul", "instructions": "Is this account a bot?" },
+                    "llm_text": { "type": "noul", "instructions": "Did an LLM write this tweet?" },
+                },
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "result": { "answers": {
+                    "bot": { "type": "noul", "noul": 0.75 },
+                    "llm_text": { "type": "noul", "noul": 0.25 },
+                } },
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let predictions = hosted(&server, 100)
+            .classify(&[input_with_llm_text("1")])
+            .await
+            .unwrap();
+
+        assert_eq!(predictions[0].p_bot, 0.75);
+        assert_eq!(predictions[0].p_llm_text, Some(0.25));
+    }
+
+    #[tokio::test]
+    async fn sends_an_object_state_as_given() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(body_json(json!({
+                "model": "clef-flash",
+                "state": { "text": "text 1", "followers": 12 },
+                "questions": { "bot": { "type": "noul", "instructions": "Is this account a bot?" } },
+            })))
+            .respond_with(success(0.5))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let mut model_input = input("1");
+        model_input.state = json!({ "text": "text 1", "followers": 12 });
+
+        let predictions = hosted(&server, 100).classify(&[model_input]).await.unwrap();
+
+        assert_eq!(predictions[0].p_llm_text, None);
+    }
+
+    #[tokio::test]
+    async fn rejects_a_response_without_an_asked_llm_text_answer() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(success(0.5))
+            .mount(&server)
+            .await;
+
+        let result = hosted(&server, 100)
+            .classify(&[input_with_llm_text("1")])
+            .await;
+
+        assert!(matches!(result, Err(Error::Response(_))));
     }
 
     #[tokio::test]

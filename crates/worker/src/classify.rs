@@ -43,7 +43,7 @@ impl<C: Classifier + Sync> ClassifierRole<C> {
         let inputs = rows
             .iter()
             .map(|(tweet, account)| {
-                metadata::build(tweet, account, &versions.metadata, &versions.question)
+                metadata::build(tweet, account, &[], &versions.metadata, &versions.question)
             })
             .collect::<Result<Vec<_>, _>>()?;
         tracing::info!(

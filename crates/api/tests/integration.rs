@@ -143,6 +143,7 @@ async fn seed_prediction(pool: &PgPool, tweet_id: &str, model: &str, p_bot: f64)
             metadata_version: v.metadata,
             question_version: v.question,
             p_bot,
+            p_llm_text: None,
             raw: json!({}),
         },
     )

@@ -1,7 +1,8 @@
 #![cfg(feature = "contract")]
 
 use classifier::{Classifier, Hosted};
-use types::{MetadataVersion, ModelInput, QuestionVersion};
+use serde_json::json;
+use types::{MetadataVersion, ModelInput, Question, QuestionVersion};
 
 #[tokio::test]
 async fn hosted_backend_returns_a_bot_probability() {
@@ -9,8 +10,11 @@ async fn hosted_backend_returns_a_bot_probability() {
         tweet_id: "1".into(),
         metadata_version: MetadataVersion("v1".into()),
         question_version: QuestionVersion("v1".into()),
-        text: "Follow me for free crypto giveaways! Link in bio. #airdrop".into(),
-        question: "Is the account behind this tweet a bot?".into(),
+        state: json!("Follow me for free crypto giveaways! Link in bio. #airdrop"),
+        questions: vec![Question {
+            id: "bot".into(),
+            instructions: "Is the account behind this tweet a bot?".into(),
+        }],
     };
 
     let predictions = Hosted::from_env().classify(&[input]).await.unwrap();
