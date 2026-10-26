@@ -562,11 +562,12 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
   - The eval report says that an LLM wrote the labels. The agreement rate bounds every accuracy number in it.
 - [ ] **4.4** You store the eval set. A private S3 bucket holds it, because it holds X content. Terraform creates the bucket. The repository stores only a manifest with the checksum and the item count. `eval` reads a local copy that you download with `aws s3 cp`, so CI never needs AWS access.
 - [ ] **4.5** You split the eval set by account with a fixed seed: 30% into the tune split and 70% into the test split. Every experiment uses the same splits, so experiments compare fairly. The bot threshold comes from the tune split only. Every comparison in the eval report uses the test split only.
-- [ ] **4.6** `crates/metadata`: You write more metadata versions. A suggested start:
-  - `v2`: `v1` plus account age, follower count, following count, tweet count, verified flag, and X's automated flag
-  - `v3`: `v2` plus the posting times of the recent tweets and the share of recent tweets with duplicate text
-  - `v4`: `v3` plus the profile description and the profile URL
-  Each version gets a field-by-field definition in the README and its own unit tests. `v2` and later send `state` as one JSON object.
+- [ ] **4.6** `crates/metadata`: You write more metadata versions. Each one tests one group of the signals that you use when you assign a label:
+  - `v2`: `v1` plus account age, follower count, following count, tweet count, favourites count, media count, blue check, and X's automated label
+  - `v3`: `v2` plus rates: tweets per day, favourites per day, and followers per following
+  - `v4`: `v3` plus the recent tweets: their posting hours, the median gap between them, and the share with duplicate text
+  - `v5`: `v4` plus the name, bio, website, and location
+  Each version gets a field-by-field definition in the README and its own unit tests. `v2` and later send `state` as one JSON object. `build` computes the account age at the time of the tweet, so it never reads the clock.
 - [ ] **4.7** `crates/metadata`: You write question versions that word the bot question in different ways.
   - Clef-flash takes no system prompt and no sampling settings. A request holds `model`, `state`, `questions`, and optional `images`.
   - Each question carries its own `instructions`. A `choice` question and a `score` question also take `criteria`. These fields are the prompt.
