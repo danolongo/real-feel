@@ -144,17 +144,14 @@ impl Hosted {
             serde_json::from_value(result.clone()).map_err(|e| Error::Response(e.to_string()))?;
         let answer = |id: &str| output.answers.get(id).map(|answer| answer.noul);
         let p_bot = answer(BOT).ok_or_else(|| Error::Response(format!("no answer for {BOT}")))?;
-        let p_llm_text = match input
+        let p_llm_text = input
             .questions
             .iter()
             .any(|question| question.id == LLM_TEXT)
-        {
-            true => Some(
-                answer(LLM_TEXT)
-                    .ok_or_else(|| Error::Response(format!("no answer for {LLM_TEXT}")))?,
-            ),
-            false => None,
-        };
+            .then(|| {
+                answer(LLM_TEXT).ok_or_else(|| Error::Response(format!("no answer for {LLM_TEXT}")))
+            })
+            .transpose()?;
         tracing::info!(
             p_bot,
             ?p_llm_text,
