@@ -582,7 +582,7 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 - [x] **4.13** You compare each metadata version's fields against the fields twitterapi.io returns. You list the gaps in the eval report. When the default metadata version needs recent tweets, the scraper fetches them in production, and the eval report gives the extra twitterapi.io cost for each query.
 - [x] **4.14** You test whether LLM-written text raises `p_bot`. The live test scored a tweet with typical LLM phrasing and odd semicolon use at 0.14. The `is_llm_text` flag from task 4.3 marks the LLM-written tweets. A question version asks about LLM writing on its own, because a human can post LLM text and the bot question asks about the account.
 - [x] **4.15** CI runs one experiment on a committed ten-item fixture eval set with the fake. The fixture holds both classes, so ROC-AUC and the calibration curve have real values.
-- [ ] **4.16** You change `DEFAULT_METADATA_VERSION`, `DEFAULT_QUESTION_VERSION`, and `BOT_THRESHOLD` in the main configuration. You run `apply`, then `deploy.yml`. The API and the workers read the same values, so they change together.
+- [x] **4.16** You change `DEFAULT_METADATA_VERSION`, `DEFAULT_QUESTION_VERSION`, and `BOT_THRESHOLD` in the main configuration. You run `apply`, then `deploy.yml`. The API and the workers read the same values, so they change together.
 
 **Docs:** `crates/eval/README.md`, `docs/reports/eval-m4.md`, decision records for O3 and O4 and the default metadata version.
 
@@ -592,7 +592,7 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 - [x] The eval report shows a calibration curve for each experiment.
 - [x] The eval report gives your agreement rate with the label agent.
 - [x] A decision record names the default metadata version, the default question version, and the bot threshold.
-- [ ] Workers use the defaults from the decision record.
+- [x] Workers use the defaults from the decision record.
 
 ---
 
