@@ -52,6 +52,7 @@ module "compute" {
     DEFAULT_MODEL_VERSION    = "clef-flash-hosted"
     DEFAULT_METADATA_VERSION = "v1"
     DEFAULT_QUESTION_VERSION = "v1"
+    BOT_THRESHOLD            = "0.5"
     BATCH_SIZE               = "25"
     # Stays below the 300 s visibility timeout of the queues.
     JOB_DEADLINE_SECS = "240"

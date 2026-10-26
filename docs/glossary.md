@@ -82,7 +82,7 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | trace ID | noun | The 32-digit hexadecimal ID that every span of one trace shares. Logs carry it in the `trace_id` field. | trace context |
 | Jaeger | noun | The trace viewer that `docker-compose.yml` runs locally. It receives OTLP on port 4318 and shows traces on port 16686. | tracing UI |
 | run log | noun | `target/smoke/run.log`: every log line of one smoke test query from all three processes, in time order. | combined log |
-| bootstrap configuration | noun | `infra/terraform/bootstrap`: the Terraform configuration that creates the S3 bucket for the state file. `terraform destroy` on the main configuration never touches it. | backend setup |
+| bootstrap configuration | noun | `infra/terraform/bootstrap`: the Terraform configuration that creates the S3 bucket for the state file and the eval bucket. `terraform destroy` on the main configuration never touches it. | backend setup |
 | main configuration | noun | `infra/terraform/main`: the Terraform configuration that wires the six modules and holds the whole stack except the state bucket. `terraform destroy` runs on it. | root module |
 | restart script | noun | The script on each EC2 instance that reads `/real-feel/*` from SSM Parameter Store, writes an env file, pulls the images, and restarts the containers. `deploy.yml` runs it through SSM Run Command. | deploy hook |
 | page | noun | One slice of a result that the API returns for one request. | slice, section |
@@ -112,6 +112,9 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | test split | noun | The 70% of eval set accounts that every comparison in an eval report uses. | holdout, test set |
 | calibration curve | noun | A chart of mean bot probability against the share of bots, one point for each of ten bins. | reliability diagram |
 | experiment | noun | One pass of the eval set through one model version, one metadata version, and one question version. | eval run, trial |
+| repeat | noun | One pass of an eval set item through one experiment. An experiment with 3 repeats passes each item 3 times. Field name: `repeat`. | run, iteration |
+| manifest | noun | The file in the repository that records the checksum and the item count of the eval set. | index, metadata file |
+| eval bucket | noun | The private S3 bucket `real-feel-eval-<account id>` that holds the eval set. The bootstrap configuration creates it. | eval storage |
 | eval report | noun | A Markdown file in `docs/reports/` that compares experiments. | results, writeup |
 | calibration | noun | How closely bot probability matches reality. A calibrated 0.8 is right 80% of the time. | confidence accuracy |
 | benchmark | noun | A fixed measurement of inference server speed: throughput and latency at set batch sizes. Never a verb. | perf test |

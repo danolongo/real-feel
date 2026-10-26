@@ -1,6 +1,6 @@
 #![cfg(feature = "integration")]
 
-use db::{CreatedQuery, PgPool, Versions};
+use db::{CreatedQuery, ExperimentResult, NewExperiment, PgPool, Versions};
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Barrier;
@@ -489,4 +489,140 @@ async fn two_identical_queries_at_once_get_one_query(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(rows, 1);
+}
+
+fn new_experiment() -> NewExperiment {
+    let v = versions("m1");
+    NewExperiment {
+        model_version: v.model,
+        metadata_version: v.metadata,
+        question_version: v.question,
+        eval_set_sha256: "abc123".into(),
+        seed: 42,
+        repeats: 2,
+    }
+}
+
+fn experiment_result(account_id: &str, repeat: i32) -> ExperimentResult {
+    ExperimentResult {
+        account_id: account_id.into(),
+        tweet_id: format!("t-{account_id}"),
+        repeat,
+        label: "agent".into(),
+        split: "test".into(),
+        is_llm_text: (repeat == 0).then_some(true),
+        p_bot: 0.75,
+        p_llm_text: (repeat == 0).then_some(0.9),
+        raw: json!({"repeat": repeat}),
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn an_experiment_round_trips(pool: PgPool) {
+    let inserted = db::insert_experiment(&pool, &new_experiment())
+        .await
+        .unwrap();
+    let fetched = db::fetch_experiment(&pool, inserted.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fetched.model_version.0, "m1");
+    assert_eq!(fetched.eval_set_sha256, "abc123");
+    assert_eq!((fetched.seed, fetched.repeats), (42, 2));
+    assert_eq!(fetched.created_at, inserted.created_at);
+    assert!(
+        db::fetch_experiment(&pool, Uuid::new_v4())
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn list_experiments_returns_the_oldest_first(pool: PgPool) {
+    let first = db::insert_experiment(&pool, &new_experiment())
+        .await
+        .unwrap();
+    let second = db::insert_experiment(&pool, &new_experiment())
+        .await
+        .unwrap();
+    sqlx::query!(
+        "UPDATE experiments SET created_at = NOW() - INTERVAL '1 hour' WHERE id = $1",
+        second.id
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let ids: Vec<_> = db::list_experiments(&pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.id)
+        .collect();
+    assert_eq!(ids, [second.id, first.id]);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn experiment_results_insert_in_one_statement_and_read_back_sorted(pool: PgPool) {
+    let experiment = db::insert_experiment(&pool, &new_experiment())
+        .await
+        .unwrap();
+    let results = [
+        experiment_result("b", 1),
+        experiment_result("a", 1),
+        experiment_result("a", 0),
+    ];
+    let inserted = db::insert_experiment_results(&pool, experiment.id, &results)
+        .await
+        .unwrap();
+    assert_eq!(inserted, 3);
+
+    let rows = db::experiment_results(&pool, experiment.id).await.unwrap();
+    let keys: Vec<_> = rows
+        .iter()
+        .map(|r| (r.account_id.as_str(), r.repeat))
+        .collect();
+    assert_eq!(keys, [("a", 0), ("a", 1), ("b", 1)]);
+    assert_eq!(rows[0].is_llm_text, Some(true));
+    assert_eq!(rows[0].p_llm_text, Some(0.9));
+    assert_eq!(rows[1].is_llm_text, None);
+    assert_eq!(rows[1].p_llm_text, None);
+    assert_eq!(rows[0].raw, json!({"repeat": 0}));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn experiment_results_reject_an_unknown_label_or_split_and_a_repeated_key(pool: PgPool) {
+    let experiment = db::insert_experiment(&pool, &new_experiment())
+        .await
+        .unwrap();
+    let mut bad_label = experiment_result("a", 0);
+    bad_label.label = "cyborg".into();
+    let mut bad_split = experiment_result("a", 0);
+    bad_split.split = "dev".into();
+    for bad in [bad_label, bad_split] {
+        assert!(
+            db::insert_experiment_results(&pool, experiment.id, &[bad])
+                .await
+                .is_err()
+        );
+    }
+    let twice = [experiment_result("a", 0), experiment_result("a", 0)];
+    assert!(
+        db::insert_experiment_results(&pool, experiment.id, &twice)
+            .await
+            .is_err()
+    );
+    assert!(
+        db::experiment_results(&pool, experiment.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn experiment_results_reject_an_unknown_experiment(pool: PgPool) {
+    let result =
+        db::insert_experiment_results(&pool, Uuid::new_v4(), &[experiment_result("a", 0)]).await;
+    assert!(result.is_err());
 }

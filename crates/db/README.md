@@ -8,7 +8,7 @@ The API and the workers call `db`. `db` calls Postgres through `sqlx` and uses t
 
 ## Terms
 
-See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, prediction, model version, metadata version, question version, batch, batch number, batch count, result, Postgres.
+See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, prediction, model version, metadata version, question version, batch, batch number, batch count, result, experiment, eval set, repeat, label, tune split, test split, Postgres.
 
 ## How it works
 
@@ -34,6 +34,9 @@ See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, 
 
     It returns whether it set `done`. The lock makes two workers that finish the last two batches at once count one after the other. A repeated call changes no row.
 14. `ping` runs `SELECT 1`. The API uses it for the readiness check.
+15. `insert_experiment` inserts one `experiments` row with a new ID and returns it. The row holds the three versions, the eval set checksum, the seed, and the repeat count. `fetch_experiment` returns one experiment by ID. `list_experiments` returns all experiments, oldest first.
+16. `insert_experiment_results` inserts many `experiment_results` rows for one experiment in one `INSERT … SELECT FROM UNNEST` statement. A row holds the label, the split, the bot probability, and the LLM text fields of one eval set account and one repeat. `experiment_results` returns the rows of one experiment, sorted by account ID and repeat.
+17. The two experiment tables have no foreign key to `tweets`, `accounts`, or `predictions`. An experiment never changes a production row. Postgres checks that the label is `human`, `bot`, or `agent` and that the split is `tune` or `test`.
 
 ### Status changes
 

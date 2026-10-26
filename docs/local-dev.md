@@ -19,6 +19,8 @@ This file takes you from a clean machine to a running stack. Run every command f
 
    `.env.example` also lists the worker variables: `SCRAPER`, `TWITTERAPI_KEY`, `TWITTERAPI_PAGES`, `TWITTERAPI_INTERVAL_SECS`, `CLASSIFIER`, `CLASSIFIER_RPS`, `BATCH_SIZE`, `JOB_DEADLINE_SECS`, `SCRAPER_DLQ_URL`, and `CLASSIFIER_DLQ_URL`. Their defaults run the worker locally. Set `SCRAPER=fixture` and `CLASSIFIER=fake` to run with no network. Set `TWITTERAPI_KEY` only when `SCRAPER` is `twitterapi`. Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` only when `CLASSIFIER` is `hosted`.
 
+   `.env.example` also sets `BOT_THRESHOLD=0.5`. The API reads it as the bot threshold for `is_bot`.
+
 2. Start Postgres (port 5433), LocalStack (port 4566), and Jaeger (ports 4318 and 16686).
 
    ```bash
@@ -81,7 +83,7 @@ CI runs the integration tests of every crate that declares the feature.
 
 ## Run the end-to-end test
 
-The end-to-end test starts the API and both worker roles in one process. It uses the fixture scraper, and the fake classifier, and creates its own queues. It posts a query over HTTP and waits up to 60 seconds for the status `done`. Then it checks for a prediction on every tweet. It needs the stack from step 2 of "Set up", the exported variables, and the applied migrations from "Run the tests".
+The end-to-end test starts the API and both worker roles in one process. It uses the fixture scraper, and the fake classifier, and creates its own queues. It posts a query over HTTP and waits up to 60 seconds for the status `done`. Then it checks for a bot probability and an `is_bot` value on every tweet. It needs the stack from step 2 of "Set up", the exported variables, and the applied migrations from "Run the tests".
 
 ```bash
 cargo test -p worker --features e2e

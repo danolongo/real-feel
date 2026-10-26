@@ -56,3 +56,39 @@ resource "aws_s3_bucket_public_access_block" "state" {
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
+
+# Holds the eval set, which contains X content. It sits here so that destroying the main configuration never deletes it.
+resource "aws_s3_bucket" "eval" {
+  bucket = "real-feel-eval-${data.aws_caller_identity.current.account_id}"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_s3_bucket_versioning" "eval" {
+  bucket = aws_s3_bucket.eval.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "eval" {
+  bucket = aws_s3_bucket.eval.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "eval" {
+  bucket = aws_s3_bucket.eval.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}

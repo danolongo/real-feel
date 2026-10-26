@@ -65,6 +65,7 @@ async fn app(pool: PgPool, queue_url: &str) -> Router {
         db: pool,
         queue: Queue::connect(queue_url).await,
         versions: Arc::new(versions("m1")),
+        bot_threshold: 0.5,
         query_reuse: Duration::from_secs(3600),
     })
 }
@@ -229,7 +230,7 @@ async fn done_query_pages_by_cursor(pool: PgPool) {
         sizes.push(tweets.len());
         assert_eq!(tweets[0]["p_bot"], 0.25);
         assert_eq!(tweets[0]["account"]["handle"], "alice");
-        assert!(tweets[0].get("is_bot").is_none());
+        assert_eq!(tweets[0]["is_bot"], false);
         match body["result"]["next_cursor"].as_str() {
             Some(cursor) => after = format!("&after={cursor}"),
             None => break,
@@ -249,6 +250,22 @@ async fn result_shows_the_prediction_of_the_default_versions(pool: PgPool) {
     let tweets = body["result"]["tweets"].as_array().unwrap();
     assert_eq!(tweets.len(), 1);
     assert_eq!(tweets[0]["p_bot"], 0.1);
+    assert_eq!(tweets[0]["is_bot"], false);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn is_bot_is_true_at_the_threshold_and_null_without_a_prediction(pool: PgPool) {
+    let id = seed_done_query(&pool, 3).await;
+    seed_prediction(&pool, "0000", "m1", 0.5).await;
+    seed_prediction(&pool, "0001", "m1", 0.49).await;
+    let app = app(pool, "http://localhost:4566/000000000000/unused").await;
+
+    let (_, body) = call(&app, get(&format!("/queries/{id}"))).await;
+    let tweets = body["result"]["tweets"].as_array().unwrap();
+    assert_eq!(tweets[0]["is_bot"], true);
+    assert_eq!(tweets[1]["is_bot"], false);
+    assert_eq!(tweets[2]["p_bot"], Value::Null);
+    assert_eq!(tweets[2]["is_bot"], Value::Null);
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
