@@ -16,4 +16,12 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("account {account_id} has more than one label record")]
     DuplicateLabelRecord { account_id: String },
+    #[error("twitterapi.io call failed: {0}")]
+    Scraper(#[from] scraper::Error),
+    #[error("{0} is not set")]
+    MissingSetting(&'static str),
+    #[error("{0} is not a number")]
+    BadSetting(&'static str),
+    #[error("the queries file holds no query")]
+    NoQueries,
 }
