@@ -1,0 +1,223 @@
+# eval
+
+`eval` builds eval sets, runs experiments, and writes eval reports. This part holds the pure core: the eval set format, the manifest, the splits, the metrics, and the report renderer.
+
+## Where it sits
+
+`eval` is a library and a binary. It depends on `types`, `scraper`, `metadata`, `classifier`, and `db`. `eval experiment` and `eval report` use Postgres. `eval collect` calls twitterapi.io.
+
+## Terms
+
+See [glossary.md](../../docs/glossary.md): eval set, label, agent account, recent tweets, LLM text, label agent, manifest, tune split, test split, reliability bin, calibration curve, experiment, eval report.
+
+## How it works
+
+1. `eval collect` writes one `CollectedItem` for each account.
+2. The label agent writes one `LabelRecord` for each account.
+3. `join` matches collected items to label records by account ID. It drops `unsure` labels and items with no label record. It reports both counts. It returns an error when two label records share an account ID.
+4. `join` copies the `is_llm_text` flag of the tweet that matched the query into the `EvalItem`. The flag stays empty when no flag names that tweet.
+5. `manifest` hashes the eval set file with SHA-256 and counts the items for each label.
+6. `split::assign` puts each account ID into the tune split (30%) or the test split (70%). It hashes the seed and the account ID with FNV-1a and a 64-bit finalizer. The same seed and ID give the same split on every platform.
+7. `metrics::evaluate` takes a slice of bot probabilities with labels and a bot threshold. It returns the metrics and the ten reliability bins.
+8. `metrics::best_threshold` returns the threshold that maximises F1 on a slice. You run it on the tune split. A tie goes to the lowest threshold.
+9. `report::render` turns experiment summaries into Markdown: one comparison table, and one calibration curve for each experiment as a Mermaid `xychart-beta`.
+
+### Metric definitions
+
+| Metric | Definition |
+|--------|------------|
+| Predicted bot | `p_bot >= threshold`. |
+| Actual bot | Label `bot` or `agent`. |
+| Accuracy, precision, recall, F1 | Standard, from the counts at the threshold. A zero denominator gives 0. |
+| ROC-AUC | The share of (bot, human) pairs where the bot has the higher `p_bot`. A tie counts half. Empty when the slice holds one class. |
+| Brier | The mean of `(p_bot - outcome)²`. Outcome is 1 for a bot and 0 for a human. |
+| Reliability bins | Ten bins `[0, 0.1)` to `[0.9, 1.0]`. Each holds the count, the mean `p_bot`, and the share of bots. |
+| ECE | The sum over bins of count / total × \|mean `p_bot` − share of bots\|. |
+| Recall (bot), recall (agent) | Recall over the items with that label alone. Empty when the slice holds none. |
+
+## Formats
+
+### Eval set (JSON Lines, one `EvalItem` for each account)
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `account` | `types::Account` | The account. |
+| `tweet` | `types::Tweet` | The tweet that matched the query. |
+| `recent_tweets` | list of `types::Tweet` | The recent tweets of the account. |
+| `label` | `human`, `bot`, `agent` | The label. |
+| `is_llm_text` | bool or null | The LLM text flag of `tweet`. |
+| `confidence` | `high`, `medium`, `low` | The label agent's confidence. |
+
+### Label record (JSON Lines, one for each account)
+
+```json
+{"account_id": "1", "handle": "x", "label": "unsure", "confidence": "low",
+ "tweets": [{"tweet_id": "10", "is_llm_text": false}], "reason": "one line"}
+```
+
+`label` takes `human`, `bot`, `agent`, or `unsure`.
+
+### Manifest
+
+```bash
+cargo run -p eval -- manifest crates/eval/fixtures/eval-set.jsonl
+```
+
+```json
+{
+  "sha256": "…",
+  "items": 10,
+  "labels": { "human": 4, "bot": 4, "agent": 2 }
+}
+```
+
+The repository stores this JSON at `crates/eval/manifest.json` for the real eval set. The real eval set lives in a private S3 bucket.
+
+## Collect accounts
+
+You run `eval collect` yourself. It needs `TWITTERAPI_KEY`, and it spends money.
+
+```bash
+cargo run -p eval -- collect --queries queries.txt --out collected.jsonl \
+  --recent 20 --pages 1 --skip eval-set.jsonl
+```
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `--queries` | none | One query for each line. Lines that start with `#` are comments. |
+| `--out` | none | The output file, in JSON Lines. A run adds to it and skips the accounts it holds. |
+| `--recent` | 20 | Recent tweets to fetch for each account. |
+| `--pages` | 1 | Search pages for each query. A page holds up to 20 tweets. |
+| `--skip` | none | An eval set file or collected file whose accounts to skip. Repeat for more files. |
+| `--yes` | off | Skip the `Continue? [y/N]` prompt. |
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `TWITTERAPI_KEY` | none | The twitterapi.io key. |
+| `TWITTERAPI_INTERVAL_SECS` | 5 | The time from the start of one request to the start of the next. |
+| `TWITTERAPI_BASE_URL` | `https://api.twitterapi.io` | The twitterapi.io address. |
+
+How it works:
+
+1. `collect` prints the expected cost and asks `Continue? [y/N]`. It makes no call before you answer `y`.
+2. For each query, `collect` calls `TwitterApi::scrape`. It keeps the first tweet of each new account.
+3. `collect` skips accounts in a `--skip` file, in the `--out` file, or seen earlier in the run.
+4. For each new account, `collect` calls `recent_tweets`. It writes one `CollectedItem` line and flushes the file. A stopped run keeps what it wrote.
+5. A failure for one query or one account prints a warning. `collect` moves on.
+6. `collect` prints the counts and the estimated cost of what it fetched.
+
+Cost: twitterapi.io charges `USD_PER_1000_TWEETS` (0.15 USD per 1,000 tweets) and at least `USD_PER_CALL_MINIMUM` (0.00015 USD) for each call. The upper bound is queries × pages × 20 search tweets, plus that many accounts × `--recent` recent tweets. Example: 10 queries, 1 page, 20 recent tweets give 200 search tweets and at most 4,000 recent tweets, about 0.63 USD.
+
+## Run an experiment
+
+The eval set file is a local copy. Download it from the eval bucket first:
+
+```bash
+aws s3 cp s3://real-feel-eval-<account id>/eval-set.jsonl eval-set.jsonl
+```
+
+```bash
+export DATABASE_URL=...   # Postgres with the migrations applied
+cargo run -p eval -- experiment --set eval-set.jsonl --backend hosted \
+  --metadata-version v5 --question-version v4 --repeats 1
+```
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `--set` | none | The eval set file. |
+| `--backend` | none | `hosted` calls Clef-flash on Cloudflare. `fake` uses `Fake::by_tweet_id(0)` and costs nothing. |
+| `--metadata-version`, `--question-version` | none | The versions that `metadata::build` lays out. |
+| `--repeats` | 1 | How many times each item passes through the experiment. |
+| `--sample` | all | Use the first n items, sorted by account ID. |
+| `--yes` | off | Skip the `Continue? [y/N]` prompt. The fake never prompts. |
+
+How it works:
+
+1. `experiment` sorts the items by account ID and applies `--sample`.
+2. `experiment` assigns each account to the tune split or the test split. The seed is `SPLIT_SEED` (`20261030`). The experiments row records it.
+3. `experiment` builds one model input for each item with `metadata::build`. The recent tweets are the metadata.
+4. For the hosted backend, `experiment` prints the expected cost and asks `Continue? [y/N]`.
+5. `experiment` inserts the experiments row. For each repeat, it sends the model inputs in chunks of 20. It inserts the results of each chunk as they arrive, so a failed run keeps its results.
+6. `experiment` prints the experiment ID and the metrics for the test split.
+
+### Cost of the hosted backend
+
+| Item | Value |
+|------|-------|
+| Price | 0.038 USD per million input tokens |
+| Source | <https://developers.cloudflare.com/workers-ai/platform/pricing/> (the "Other model pricing" table) |
+| Date read | 2026-10-26 |
+| Output tokens | The page lists no price. The estimate leaves them out. |
+| Input tokens | The JSON length of `state` plus `questions`, divided by 4, summed over items, times `--repeats`. |
+
+The price is `USD_PER_MILLION_INPUT_TOKENS` in `src/experiment.rs`. Check the page again before a large run.
+
+### Repeatability run
+
+To measure how repeatable Clef-flash is, send a sample of 50 items 5 times each:
+
+```bash
+cargo run -p eval -- experiment --set eval-set.jsonl --backend hosted \
+  --metadata-version v5 --question-version v4 --sample 50 --repeats 5
+```
+
+The eval report then holds a repeatability table.
+
+## Write an eval report
+
+```bash
+cargo run -p eval -- report --out docs/reports/eval-m4.md [--experiment <id>]...
+```
+
+Without `--experiment`, the report covers every experiment in Postgres. For each experiment, `report`:
+
+1. Sets the average `p_bot` of each item over its repeats.
+2. Picks the bot threshold with the best F1 on the tune split. An empty tune split gives 0.5.
+3. Computes every metric on the test split at that threshold.
+4. Renders a comparison table, label counts for each split, recall for bot items and agent items apart, and one Mermaid calibration curve for each experiment.
+5. When an experiment has more than one repeat, adds a repeatability table: the mean and the largest standard deviation of `p_bot` across repeats, and the share of items whose `is_bot` answer flips between repeats.
+
+## Fixture
+
+`fixtures/eval-set.jsonl` holds ten invented items: 4 human, 4 bot, 2 agent. Two tweets carry `is_llm_text: true`. The handles and texts are made up. They are not X data.
+
+## Subcommands
+
+| Subcommand | State |
+|------------|-------|
+| `manifest <eval set file>` | Works. |
+| `join --collected <file>... --labels <file>... --out <file>` | Works. Joins collected files and label record files into an eval set file. It ignores extra label fields such as `source` and `changed_from`. It prints the item count, the dropped counts, and the label counts. |
+| `collect` | Works. See [Collect accounts](#collect-accounts). |
+| `experiment` | Works. See [Run an experiment](#run-an-experiment). |
+| `report` | Works. See [Write an eval report](#write-an-eval-report). |
+
+## Test it
+
+From the repository root:
+
+```bash
+cargo test -p eval
+```
+
+The unit tests need no network access and no Docker. The integration test runs an experiment and a report on the fixture with the fake. It needs Postgres with the migrations applied and `DATABASE_URL`:
+
+```bash
+cargo test -p eval --features integration
+```
+
+CI runs the same experiment and report in the `eval` job. The job fails when the report holds no calibration curve.
+
+## Failure modes
+
+| Error | Cause | What you do |
+|-------|-------|-------------|
+| `Io` | The file does not exist or you cannot read it. | Fix the path. Download the eval set with `aws s3 cp`. |
+| `Line` | A line is not valid JSON, or misses a field. The error names the line number. | Fix that line. |
+| `MissingSetting` | `TWITTERAPI_KEY` is not set. | Set it, then run again. |
+| `Scraper` | twitterapi.io failed on a call that `collect` cannot skip. | Read the message. Run again: `collect` skips collected accounts. |
+| `Db` | `DATABASE_URL` points to no Postgres, or the migrations are missing. | Start Postgres. Apply `crates/db/migrations`. |
+| `Classifier` | The backend failed after its retries. | Run again. The experiments row keeps the results inserted so far. |
+| `Metadata` | The metadata version or question version does not exist. | Use a version that `metadata` defines. |
+| `NoSuchExperiment` | `--experiment` names an ID that Postgres lacks. | Fix the ID. |
+| `NoQueries` | The queries file holds no query. | Add a query. |
+| `DuplicateLabelRecord` | Two label records share an account ID. | Remove one record. |

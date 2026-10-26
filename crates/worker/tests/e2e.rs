@@ -106,6 +106,7 @@ async fn a_query_over_http_ends_done_with_a_prediction_for_every_tweet() {
             metadata: MetadataVersion("v1".into()),
             question: QuestionVersion("v1".into()),
         }),
+        bot_threshold: 0.5,
         query_reuse: Duration::ZERO,
     });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -147,6 +148,7 @@ async fn a_query_over_http_ends_done_with_a_prediction_for_every_tweet() {
     let tweets = query["result"]["tweets"].as_array().unwrap();
     assert_eq!(tweets.len(), 5);
     assert!(tweets.iter().all(|tweet| tweet["p_bot"].is_number()));
+    assert!(tweets.iter().all(|tweet| tweet["is_bot"].is_boolean()));
     scraper_queues.delete(&client).await;
     classifier_queues.delete(&client).await;
 }

@@ -12,6 +12,7 @@ struct Config {
     database_url: String,
     scraper_queue_url: String,
     versions: Versions,
+    bot_threshold: f64,
     query_reuse: Duration,
 }
 
@@ -28,6 +29,12 @@ impl Config {
                     .map_err(|_| format!("QUERY_REUSE_SECS is not a number: {secs}"))?,
                 Err(_) => 3600,
             }),
+            bot_threshold: {
+                let threshold = var("BOT_THRESHOLD")?;
+                threshold
+                    .parse()
+                    .map_err(|_| format!("BOT_THRESHOLD is not a number: {threshold}"))?
+            },
             versions: Versions {
                 model: ModelVersion(var("DEFAULT_MODEL_VERSION")?),
                 metadata: MetadataVersion(var("DEFAULT_METADATA_VERSION")?),
@@ -53,6 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         db,
         queue: Queue::connect(config.scraper_queue_url).await,
         versions: Arc::new(config.versions),
+        bot_threshold: config.bot_threshold,
         query_reuse: config.query_reuse,
     };
 

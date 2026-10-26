@@ -8,7 +8,7 @@ The scraper worker calls `Scraper::scrape` for each scraper job. `scraper` calls
 
 ## Terms
 
-See [glossary.md](../../docs/glossary.md): scraper, query, tweet, account, fixture, scraper job, worker.
+See [glossary.md](../../docs/glossary.md): scraper, query, tweet, recent tweets, account, fixture, scraper job, worker.
 
 ## How it works
 
@@ -22,6 +22,22 @@ See [glossary.md](../../docs/glossary.md): scraper, query, tweet, account, fixtu
 5. Every tweet in a search result carries its author, so `TwitterApi` makes no profile call.
 6. `TwitterApi` builds one `Account` for each distinct author ID and one `Tweet` for each distinct tweet ID. It keeps the first one it sees. `raw` holds the full tweet object or the full author object.
 7. The fixture implementation (`Fixture::load(path)`) reads a `Scraped` from a JSON file once. It returns that content for any query.
+
+### Recent tweets
+
+`TwitterApi::recent_tweets(handle, limit)` fetches the recent tweets of one account. It is a method of `TwitterApi`, not of `trait Scraper`. It returns `Vec<Tweet>`, newest first.
+
+1. `recent_tweets` sends `GET {base_url}/twitter/user/last_tweets` with the header `X-API-Key` and these query parameters:
+   - `userName`: the handle
+   - `cursor`: empty for the first page, then the `next_cursor` of the previous page
+2. twitterapi.io answers `{"status", "code", "msg", "data": {"pin_tweet", "tweets"}, "has_next_page", "next_cursor"}`. `recent_tweets` reads `data.tweets`, `has_next_page`, and `next_cursor`. It ignores `data.pin_tweet`. A page holds up to 20 tweets.
+3. `recent_tweets` pages until it holds `limit` tweets, `has_next_page` is `false`, or a page comes back empty. It cuts the result to `limit`.
+4. `recent_tweets` shares the pacing and the `429` retry of `scrape`, and maps each tweet as `scrape` does. The `Fields` table below applies. `recent_tweets` returns no `Account`: the caller already holds the account.
+5. The endpoint leaves out replies unless `includeReplies=true`. `recent_tweets` never sends that parameter.
+
+`USD_PER_1000_TWEETS` and `USD_PER_CALL_MINIMUM` hold the price, so `eval collect` can print the expected cost. A call for `limit` tweets costs about `ceil(limit / 20)` calls, each at least `USD_PER_CALL_MINIMUM`.
+
+No live call has tested this endpoint. The tests use `wiremock` with responses that follow the documented shape. The documentation does not say what the endpoint returns when it finds no such handle, or what it charges, apart from the shared tweet price.
 
 ### Fields
 
@@ -80,6 +96,7 @@ cargo test -p scraper
 
 - twitterapi.io is down or rejects the key. `scrape` returns `Error::Http`.
 - twitterapi.io answers `429` on all 3 attempts for a page. `scrape` returns `Error::Http`. The worker leaves the scraper job in the queue, and SQS delivers the job again.
-- A tweet or author lacks a required field. `scrape` returns `Error::Json`.
-- A date does not match the format. `scrape` returns `Error::Date`.
+- A tweet or author lacks a required field. `scrape` and `recent_tweets` return `Error::Json`.
+- A date does not match the format. `scrape` and `recent_tweets` return `Error::Date`.
+- twitterapi.io rejects `recent_tweets` with a `400` status. `recent_tweets` returns `Error::Http`.
 - The fixture file is missing or invalid. `Fixture::load` returns `Error::Io` or `Error::Json`.

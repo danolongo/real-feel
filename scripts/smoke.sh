@@ -33,6 +33,7 @@ export BATCH_SIZE=${BATCH_SIZE:-25}
 export JOB_DEADLINE_SECS=${JOB_DEADLINE_SECS:-240}
 export DEFAULT_METADATA_VERSION=${DEFAULT_METADATA_VERSION:-v1}
 export DEFAULT_QUESTION_VERSION=${DEFAULT_QUESTION_VERSION:-v1}
+export BOT_THRESHOLD=${BOT_THRESHOLD:-0.5}
 # The smoke test always uses the real services and always scrapes.
 export SCRAPER=twitterapi CLASSIFIER=hosted QUERY_REUSE_SECS=0
 export DEFAULT_MODEL_VERSION=clef-flash-hosted

@@ -68,6 +68,30 @@ jobs:
           done
           cargo test "${args[@]}"
 
+  # Runs one experiment on the committed fixture with the fake and checks that the report draws a calibration curve.
+  eval:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-password
+      DATABASE_URL: postgres://realfeel:ci-password@localhost:5433/realfeel
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose up -d --wait postgres
+      - name: Install the toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply the migrations so the sqlx macros can check queries
+        run: |
+          for file in crates/db/migrations/*.sql; do
+            docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -q -U realfeel -d realfeel < "$file"
+          done
+      - name: Run one experiment on the fixture eval set
+        run: cargo run -p eval -- experiment --set crates/eval/fixtures/eval-set.jsonl --backend fake --metadata-version v5 --question-version v4 --repeats 2 --yes
+      - name: Write the eval report
+        run: cargo run -p eval -- report --out target/eval-report.md
+      - name: Check that the report holds a calibration curve
+        run: grep -q 'xychart-beta' target/eval-report.md
+
   e2e:
     runs-on: ubuntu-latest
     env:

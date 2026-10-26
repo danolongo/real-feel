@@ -78,14 +78,21 @@ pub struct MetadataVersion(pub String);
 #[sqlx(transparent)]
 pub struct QuestionVersion(pub String);
 
-/// What the classifier sends to Clef-flash for one tweet. `text` holds the tweet text and the metadata, laid out by the metadata version.
+/// One question that Clef-flash answers about a tweet. `instructions` holds the wording.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Question {
+    pub id: String,
+    pub instructions: String,
+}
+
+/// What the classifier sends to Clef-flash for one tweet. `state` holds the tweet text and the metadata, laid out by the metadata version: a JSON string (`v1`) or a JSON object (`v2` and later). `questions` always holds the question `bot`. It can also hold `llm_text`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelInput {
     pub tweet_id: String,
     pub metadata_version: MetadataVersion,
     pub question_version: QuestionVersion,
-    pub text: String,
-    pub question: String,
+    pub state: Value,
+    pub questions: Vec<Question>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -95,6 +102,7 @@ pub struct Prediction {
     pub metadata_version: MetadataVersion,
     pub question_version: QuestionVersion,
     pub p_bot: f64,
+    pub p_llm_text: Option<f64>,
     pub raw: Value,
 }
 

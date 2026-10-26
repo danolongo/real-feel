@@ -29,15 +29,21 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | metadata | noun | The account fields and tweet fields, other than tweet text, that a model input carries. Examples: account age, follower count, posting times. | features, attributes, context |
 | metadata version | noun | An identifier (`v1`, `v2`, …) for one exact set of metadata fields and one exact text layout. | schema, shape, feature set |
 | question version | noun | An identifier (`v1`, `v2`, …) for one exact wording of the question that Clef-flash answers. | prompt version |
-| model input | noun | Everything the classifier sends to Clef-flash for one tweet: tweet text, metadata, and the question. | payload, prompt |
+| model input | noun | Everything the classifier sends to Clef-flash for one tweet: the state (tweet text and metadata) and the questions. | payload, prompt |
 | bot | noun | An account that software runs. | fake account |
 | human | noun | An account that a person runs. | real account, organic account |
 | bot probability | noun | A number from 0 to 1. It says how likely Clef-flash thinks the account behind a tweet is a bot. Field name: `p_bot`. | bot score, confidence, score |
+| LLM-text probability | noun | A number from 0 to 1. It says how likely Clef-flash thinks an LLM wrote the tweet text. It stays empty when the model input asks no LLM-writing question. Field name: `p_llm_text`. | AI-text score |
 | bot threshold | noun | The bot probability at or above which the API reports an account as a bot. Field name: `is_bot`. | cutoff |
-| prediction | noun | The stored output for one model input: bot probability, model version, metadata version, question version. | decision, score, classification |
+| prediction | noun | The stored output for one model input: bot probability, LLM-text probability, model version, metadata version, question version. | decision, score, classification |
 | result | noun | What the API returns for a query whose status is `done`: tweets, accounts, and predictions. | response, output |
 | embedding | noun | A vector of numbers that captures the meaning of tweet text. Only the M8 experiments use embeddings. | vector, encoding |
-| label | noun | The known truth for one eval set item: `bot` or `human`. Never a verb. | ground truth, tag |
+| label | noun | The known truth for one eval set item: `human`, `bot`, or `agent`. Never a verb. | ground truth, tag |
+| agent account | noun | A bot that an LLM runs. It writes its own tweets. Label value: `agent`. | AI bot, LLM bot |
+| recent tweets | noun | The latest tweets of one account, which `eval collect` fetches apart from the tweet that matched the query. | timeline, history |
+| blue check | noun | The paid verification mark on an X account. Anyone can buy it, so it flags a bot only slightly. Field name: `is_verified`; key in `state`: `blue_check`. | verified badge, verification |
+| account age | noun | The days between the join date of an account and the posting time of a tweet. The classifier never reads the clock for it. Key in `state`: `age_days`. | account lifetime, tenure |
+| LLM text | noun | Tweet text that an LLM wrote, whoever posted it. Field name: `is_llm_text`. | AI text, generated text |
 
 ## Components
 
@@ -79,7 +85,7 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | trace ID | noun | The 32-digit hexadecimal ID that every span of one trace shares. Logs carry it in the `trace_id` field. | trace context |
 | Jaeger | noun | The trace viewer that `docker-compose.yml` runs locally. It receives OTLP on port 4318 and shows traces on port 16686. | tracing UI |
 | run log | noun | `target/smoke/run.log`: every log line of one smoke test query from all three processes, in time order. | combined log |
-| bootstrap configuration | noun | `infra/terraform/bootstrap`: the Terraform configuration that creates the S3 bucket for the state file. `terraform destroy` on the main configuration never touches it. | backend setup |
+| bootstrap configuration | noun | `infra/terraform/bootstrap`: the Terraform configuration that creates the S3 bucket for the state file and the eval bucket. `terraform destroy` on the main configuration never touches it. | backend setup |
 | main configuration | noun | `infra/terraform/main`: the Terraform configuration that wires the six modules and holds the whole stack except the state bucket. `terraform destroy` runs on it. | root module |
 | restart script | noun | The script on each EC2 instance that reads `/real-feel/*` from SSM Parameter Store, writes an env file, pulls the images, and restarts the containers. `deploy.yml` runs it through SSM Run Command. | deploy hook |
 | page | noun | One slice of a result that the API returns for one request. | slice, section |
@@ -104,8 +110,17 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | Term | Part of speech | Definition | Do not use |
 |------|----------------|------------|------------|
 | eval set | noun | A fixed collection of tweets and accounts, each with a label. | test set, benchmark data |
+| label agent | noun | The Claude Haiku session that reads eval set items and writes their labels by the criteria in `crates/eval/LABELS.md`. | annotator, labeler |
+| tune split | noun | The 30% of eval set accounts that set the bot threshold. | train set, dev set |
+| test split | noun | The 70% of eval set accounts that every comparison in an eval report uses. | holdout, test set |
+| calibration curve | noun | A chart of mean bot probability against the share of bots, one point for each of ten bins. | reliability diagram |
 | experiment | noun | One pass of the eval set through one model version, one metadata version, and one question version. | eval run, trial |
+| repeat | noun | One pass of an eval set item through one experiment. An experiment with 3 repeats passes each item 3 times. Field name: `repeat`. | run, iteration |
+| repeatability | noun | How far the bot probability of one eval set item moves when the item passes through one experiment more than once. The eval report gives the standard deviation of the bot probability and the share of items whose `is_bot` answer flips. | stability, variance |
+| manifest | noun | The file in the repository that records the checksum and the item count of the eval set. | index, metadata file |
+| eval bucket | noun | The private S3 bucket `real-feel-eval-<account id>` that holds the eval set. The bootstrap configuration creates it. | eval storage |
 | eval report | noun | A Markdown file in `docs/reports/` that compares experiments. | results, writeup |
+| reliability bin | noun | One of ten equal-width ranges of bot probability. It holds the item count, the mean bot probability, and the share of bots. | bucket |
 | calibration | noun | How closely bot probability matches reality. A calibrated 0.8 is right 80% of the time. | confidence accuracy |
 | benchmark | noun | A fixed measurement of inference server speed: throughput and latency at set batch sizes. Never a verb. | perf test |
 | load test | noun | A k6 script that sends HTTP requests to the API at a set rate. | stress test, perf test |
