@@ -9,7 +9,7 @@ output "github_role_arn" {
 }
 
 output "datadog_role_arn" {
-  description = "Role that Datadog assumes to read the SQS metrics."
+  description = "Role that Datadog assumes to read the SQS, RDS, and EC2 metrics."
   value       = module.iam.datadog_role_arn
 }
 

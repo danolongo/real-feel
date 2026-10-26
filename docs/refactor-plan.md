@@ -512,7 +512,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
   - A restart script on each instance reads `/real-feel/*` from SSM, writes an env file, and runs each container with `docker run --env-file` on the Docker network `real-feel`. The API container publishes port 80.
 - [ ] **3.7** `iam`: You create two roles.
   - The GitHub Actions role trusts OIDC tokens only with `aud = sts.amazonaws.com` and `sub = repo:danolongo/real-feel:ref:refs/heads/main`. It can push to the two ECR repositories, call `ecr:GetAuthorizationToken`, run `AWS-RunShellScript` only on instances tagged `project=real-feel`, and read the command results. It cannot do anything else.
-  - The Datadog integration role lets Datadog read the CloudWatch metrics of SQS. It cannot do anything else.
+  - The Datadog integration role lets Datadog read the CloudWatch metrics of SQS, RDS, and EC2, and list those resources with their tags. It cannot do anything else.
 - [ ] **3.8** You write `deploy.yml`. It runs after `ci.yml` succeeds on `main`, and on `workflow_dispatch`.
   1. It starts Postgres as a service container, applies the migrations, and runs `cargo sqlx prepare --workspace`.
   2. It builds the images, tags them with the git SHA, and pushes them to ECR.

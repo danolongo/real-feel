@@ -4,7 +4,7 @@ This folder holds the Datadog dashboard for Real Feel. The dashboard shows the r
 
 ## Where it sits
 
-The Datadog agent runs on both EC2 instances. The agent receives traces from the API and the workers, and it collects the JSON logs of every container. The Datadog AWS integration reads the SQS metrics from CloudWatch. See [the Terraform README](../terraform/README.md) for the setup.
+The Datadog agent runs on both EC2 instances. The agent receives traces from the API and the workers, and it collects the JSON logs of every container. The Datadog AWS integration reads the SQS, RDS, and EC2 metrics from CloudWatch. The EC2 metrics include `CPUCreditBalance`, which shows when a `t4g` instance runs out of CPU credits. See [the Terraform README](../terraform/README.md) for the setup.
 
 ## Terms
 

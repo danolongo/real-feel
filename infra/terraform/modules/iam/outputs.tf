@@ -4,6 +4,6 @@ output "github_role_arn" {
 }
 
 output "datadog_role_arn" {
-  description = "ARN of the role that Datadog assumes to read SQS metrics."
+  description = "ARN of the role that Datadog assumes to read the SQS, RDS, and EC2 metrics."
   value       = aws_iam_role.datadog.arn
 }

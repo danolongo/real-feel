@@ -131,14 +131,18 @@ resource "aws_iam_role" "datadog" {
   assume_role_policy = data.aws_iam_policy_document.datadog_trust.json
 }
 
-# The minimum set that Datadog's SQS integration lists, plus the CloudWatch
-# reads that Datadog uses to fetch the SQS metrics.
-data "aws_iam_policy_document" "datadog_sqs" {
+# The CloudWatch reads fetch the SQS, RDS, and EC2 metrics. The describe and
+# list reads let Datadog name and tag the queues, the database, and the instances.
+data "aws_iam_policy_document" "datadog_metrics" {
   statement {
-    sid = "ReadSqsMetrics"
+    sid = "ReadMetrics"
     actions = [
       "cloudwatch:GetMetricData",
       "cloudwatch:ListMetrics",
+      "ec2:DescribeInstanceStatus",
+      "ec2:DescribeInstances",
+      "rds:DescribeDBInstances",
+      "rds:ListTagsForResource",
       "sqs:ListQueues",
       "tag:GetResources",
     ]
@@ -146,8 +150,8 @@ data "aws_iam_policy_document" "datadog_sqs" {
   }
 }
 
-resource "aws_iam_role_policy" "datadog_sqs" {
-  name   = "sqs-metrics"
+resource "aws_iam_role_policy" "datadog_metrics" {
+  name   = "metrics"
   role   = aws_iam_role.datadog.id
-  policy = data.aws_iam_policy_document.datadog_sqs.json
+  policy = data.aws_iam_policy_document.datadog_metrics.json
 }

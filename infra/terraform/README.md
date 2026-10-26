@@ -88,7 +88,7 @@ Run every command from the repository root.
    gh variable set AWS_DEPLOY_ROLE_ARN --body "$(terraform -chdir=infra/terraform/main output -raw github_role_arn)"
    ```
 
-7. Finish the Datadog AWS integration. Paste the output of `terraform -chdir=infra/terraform/main output -raw datadog_role_arn` into the role ARN field. Enable the SQS metrics, then save.
+7. Finish the Datadog AWS integration. Paste the output of `terraform -chdir=infra/terraform/main output -raw datadog_role_arn` into the role ARN field. Datadog adds the account only when you finish the form. Open the account's **Metric Collection** tab, turn on SQS, RDS, and EC2, turn off every other service, and keep the region `us-east-1`. Then save.
 
 8. Run `deploy.yml` by hand. The new ECR repositories are empty, so no merge to `main` has pushed images yet. GitHub runs `deploy.yml` only from `main`, and the deploy role trusts only `main`. First wait until both instances appear in `aws ssm describe-instance-information`. The instances need a few minutes after `apply` to install Docker and register with SSM.
 
@@ -156,7 +156,7 @@ These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-
 - **`deploy.yml` cannot assume the role.** `AWS_DEPLOY_ROLE_ARN` is wrong or missing. Set it again from step 6.
 - **The restart script fails on an instance.** Run `aws ssm start-session --target <instance id>`, then read the script output. A secret that still holds `placeholder` is the usual cause. Redo step 5.
 - **The API does not answer `curl`.** Your IP changed, so it no longer matches `operator_cidr`. Run `apply` with the new CIDR.
-- **Datadog shows no SQS metrics.** The integration does not have the role ARN yet. Redo step 7.
+- **Datadog shows no SQS, RDS, or EC2 metrics.** The integration does not have the role ARN yet, or the service is off in **Metric Collection**. Redo step 7.
 
 ## Decisions
 
