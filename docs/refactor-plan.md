@@ -555,6 +555,10 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
   - `v4`: `v3` plus profile description and profile URL
   Each version gets a field-by-field definition in the README and its own unit tests.
 - [ ] **4.4** `crates/metadata`: You write question versions that word the bot question in different ways.
+  - Clef-flash takes no system prompt and no sampling settings. A request holds `model`, `state`, `questions`, and optional `images`.
+  - Each question carries its own `instructions`. A `choice` question and a `score` question also take `criteria`. These fields are the prompt.
+  - `state` accepts structured data, not only text. A metadata version can send the tweet and the account fields as one JSON object.
+  - One request takes up to 64 questions. The bot question and the LLM-writing question of task 4.11 can share one request.
 - [ ] **4.5** `crates/eval`: You build the `eval` binary. `eval experiment --model-version … --metadata-version … --question-version …` runs one experiment. The binary prints the expected cost before it calls a paid backend, and asks you to confirm.
 - [ ] **4.6** `crates/eval`: The binary computes accuracy, precision, recall, F1, ROC-AUC, Brier score, and expected calibration error. Postgres stores every experiment. `eval report` writes an eval report that compares experiments.
 - [ ] **4.7** You settle O4 from the eval report. You record the chosen bot threshold in a decision record. The API adds `is_bot` to the result.
