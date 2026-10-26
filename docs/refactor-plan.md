@@ -537,7 +537,7 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 
 - [x] A merge to `main` deploys new images with no manual steps.
 - [x] One real query completes on AWS.
-- [ ] Datadog shows one trace that spans the API, the scraper worker, and the classifier worker.
+- [x] Datadog shows one trace that spans the API, the scraper worker, and the classifier worker.
 - [ ] `terraform destroy` followed by `terraform apply` and one `deploy.yml` run rebuilds the stack. You prove it once.
 - [ ] The AWS Budgets alert covers the new resources.
 
