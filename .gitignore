@@ -22,6 +22,7 @@ model/*.onnx.data
 **/*.parquet
 **/*.csv
 **/*.jsonl
+!crates/eval/fixtures/*.jsonl
 
 # OS
 .DS_Store
