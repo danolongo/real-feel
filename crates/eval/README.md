@@ -4,7 +4,7 @@
 
 ## Where it sits
 
-`eval` is a library and a binary. It depends on `types` and `scraper`. It does not call Postgres, the classifier, or `metadata` yet. A later task wires `eval experiment` to them.
+`eval` is a library and a binary. It depends on `types`, `scraper`, `metadata`, `classifier`, and `db`. `eval experiment` and `eval report` use Postgres. `eval collect` calls twitterapi.io.
 
 ## Terms
 
@@ -108,6 +108,75 @@ How it works:
 
 Cost: twitterapi.io charges `USD_PER_1000_TWEETS` (0.15 USD per 1,000 tweets) and at least `USD_PER_CALL_MINIMUM` (0.00015 USD) for each call. The upper bound is queries × pages × 20 search tweets, plus that many accounts × `--recent` recent tweets. Example: 10 queries, 1 page, 20 recent tweets give 200 search tweets and at most 4,000 recent tweets, about 0.63 USD.
 
+## Run an experiment
+
+The eval set file is a local copy. Download it from the eval bucket first:
+
+```bash
+aws s3 cp s3://real-feel-eval-<account id>/eval-set.jsonl eval-set.jsonl
+```
+
+```bash
+export DATABASE_URL=...   # Postgres with the migrations applied
+cargo run -p eval -- experiment --set eval-set.jsonl --backend hosted \
+  --metadata-version v5 --question-version v4 --repeats 1
+```
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `--set` | none | The eval set file. |
+| `--backend` | none | `hosted` calls Clef-flash on Cloudflare. `fake` uses `Fake::by_tweet_id(0)` and costs nothing. |
+| `--metadata-version`, `--question-version` | none | The versions that `metadata::build` lays out. |
+| `--repeats` | 1 | How many times each item passes through the experiment. |
+| `--sample` | all | Use the first n items, sorted by account ID. |
+| `--yes` | off | Skip the `Continue? [y/N]` prompt. The fake never prompts. |
+
+How it works:
+
+1. `experiment` sorts the items by account ID and applies `--sample`.
+2. `experiment` assigns each account to the tune split or the test split. The seed is `SPLIT_SEED` (`20261030`). The experiments row records it.
+3. `experiment` builds one model input for each item with `metadata::build`. The recent tweets are the metadata.
+4. For the hosted backend, `experiment` prints the expected cost and asks `Continue? [y/N]`.
+5. `experiment` inserts the experiments row. For each repeat, it sends the model inputs in chunks of 20. It inserts the results of each chunk as they arrive, so a failed run keeps its results.
+6. `experiment` prints the experiment ID and the metrics for the test split.
+
+### Cost of the hosted backend
+
+| Item | Value |
+|------|-------|
+| Price | 0.038 USD per million input tokens |
+| Source | <https://developers.cloudflare.com/workers-ai/platform/pricing/> (the "Other model pricing" table) |
+| Date read | 2026-10-26 |
+| Output tokens | The page lists no price. The estimate leaves them out. |
+| Input tokens | The JSON length of `state` plus `questions`, divided by 4, summed over items, times `--repeats`. |
+
+The price is `USD_PER_MILLION_INPUT_TOKENS` in `src/experiment.rs`. Check the page again before a large run.
+
+### Repeatability run
+
+To measure how repeatable Clef-flash is, send a sample of 50 items 5 times each:
+
+```bash
+cargo run -p eval -- experiment --set eval-set.jsonl --backend hosted \
+  --metadata-version v5 --question-version v4 --sample 50 --repeats 5
+```
+
+The eval report then holds a repeatability table.
+
+## Write an eval report
+
+```bash
+cargo run -p eval -- report --out docs/reports/eval-m4.md [--experiment <id>]...
+```
+
+Without `--experiment`, the report covers every experiment in Postgres. For each experiment, `report`:
+
+1. Sets the average `p_bot` of each item over its repeats.
+2. Picks the bot threshold with the best F1 on the tune split. An empty tune split gives 0.5.
+3. Computes every metric on the test split at that threshold.
+4. Renders a comparison table, label counts for each split, recall for bot items and agent items apart, and one Mermaid calibration curve for each experiment.
+5. When an experiment has more than one repeat, adds a repeatability table: the mean and the largest standard deviation of `p_bot` across repeats, and the share of items whose `is_bot` answer flips between repeats.
+
 ## Fixture
 
 `fixtures/eval-set.jsonl` holds ten invented items: 4 human, 4 bot, 2 agent. Two tweets carry `is_llm_text: true`. The handles and texts are made up. They are not X data.
@@ -117,8 +186,10 @@ Cost: twitterapi.io charges `USD_PER_1000_TWEETS` (0.15 USD per 1,000 tweets) an
 | Subcommand | State |
 |------------|-------|
 | `manifest <eval set file>` | Works. |
+| `join --collected <file>... --labels <file>... --out <file>` | Works. Joins collected files and label record files into an eval set file. It ignores extra label fields such as `source` and `changed_from`. It prints the item count, the dropped counts, and the label counts. |
 | `collect` | Works. See [Collect accounts](#collect-accounts). |
-| `experiment`, `report` | Print `not built yet` and exit 1. |
+| `experiment` | Works. See [Run an experiment](#run-an-experiment). |
+| `report` | Works. See [Write an eval report](#write-an-eval-report). |
 
 ## Test it
 
@@ -128,7 +199,13 @@ From the repository root:
 cargo test -p eval
 ```
 
-The tests need no network access and no Docker.
+The unit tests need no network access and no Docker. The integration test runs an experiment and a report on the fixture with the fake. It needs Postgres with the migrations applied and `DATABASE_URL`:
+
+```bash
+cargo test -p eval --features integration
+```
+
+CI runs the same experiment and report in the `eval` job. The job fails when the report holds no calibration curve.
 
 ## Failure modes
 
@@ -138,5 +215,9 @@ The tests need no network access and no Docker.
 | `Line` | A line is not valid JSON, or misses a field. The error names the line number. | Fix that line. |
 | `MissingSetting` | `TWITTERAPI_KEY` is not set. | Set it, then run again. |
 | `Scraper` | twitterapi.io failed on a call that `collect` cannot skip. | Read the message. Run again: `collect` skips collected accounts. |
+| `Db` | `DATABASE_URL` points to no Postgres, or the migrations are missing. | Start Postgres. Apply `crates/db/migrations`. |
+| `Classifier` | The backend failed after its retries. | Run again. The experiments row keeps the results inserted so far. |
+| `Metadata` | The metadata version or question version does not exist. | Use a version that `metadata` defines. |
+| `NoSuchExperiment` | `--experiment` names an ID that Postgres lacks. | Fix the ID. |
 | `NoQueries` | The queries file holds no query. | Add a query. |
 | `DuplicateLabelRecord` | Two label records share an account ID. | Remove one record. |

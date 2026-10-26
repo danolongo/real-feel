@@ -116,10 +116,10 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | calibration curve | noun | A chart of mean bot probability against the share of bots, one point for each of ten bins. | reliability diagram |
 | experiment | noun | One pass of the eval set through one model version, one metadata version, and one question version. | eval run, trial |
 | repeat | noun | One pass of an eval set item through one experiment. An experiment with 3 repeats passes each item 3 times. Field name: `repeat`. | run, iteration |
+| repeatability | noun | How far the bot probability of one eval set item moves when the item passes through one experiment more than once. The eval report gives the standard deviation of the bot probability and the share of items whose `is_bot` answer flips. | stability, variance |
 | manifest | noun | The file in the repository that records the checksum and the item count of the eval set. | index, metadata file |
 | eval bucket | noun | The private S3 bucket `real-feel-eval-<account id>` that holds the eval set. The bootstrap configuration creates it. | eval storage |
 | eval report | noun | A Markdown file in `docs/reports/` that compares experiments. | results, writeup |
-| manifest | noun | A JSON file that holds the sha256, the item count, and the count per label of one eval set file. The repository stores the manifest in place of the eval set. | checksum file, index |
 | reliability bin | noun | One of ten equal-width ranges of bot probability. It holds the item count, the mean bot probability, and the share of bots. | bucket |
 | calibration | noun | How closely bot probability matches reality. A calibrated 0.8 is right 80% of the time. | confidence accuracy |
 | benchmark | noun | A fixed measurement of inference server speed: throughput and latency at set batch sizes. Never a verb. | perf test |

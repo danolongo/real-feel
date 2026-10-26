@@ -3,14 +3,37 @@ use std::fmt::Write;
 use serde::{Deserialize, Serialize};
 use types::{MetadataVersion, ModelVersion, QuestionVersion};
 
+use crate::manifest::LabelCounts;
 use crate::metrics::Metrics;
 
-/// The result of one experiment on one slice, ready to render.
+/// How far `p_bot` moves when one item passes through one experiment more than once.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Repeatability {
+    pub repeats: i32,
+    /// Items with two or more results.
+    pub items: usize,
+    /// The mean over items of the standard deviation of `p_bot` across repeats.
+    pub mean_sd: f64,
+    /// The largest standard deviation of `p_bot` across repeats over all items.
+    pub max_sd: f64,
+    /// The share of items whose `is_bot` answer differs between repeats.
+    pub flip_share: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SplitLabelCounts {
+    pub tune: LabelCounts,
+    pub test: LabelCounts,
+}
+
+/// The result of one experiment on the test split, ready to render.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExperimentSummary {
     pub model_version: ModelVersion,
     pub metadata_version: MetadataVersion,
     pub question_version: QuestionVersion,
+    pub labels: SplitLabelCounts,
+    pub repeatability: Option<Repeatability>,
     pub metrics: Metrics,
 }
 
@@ -54,6 +77,46 @@ pub fn render(summaries: &[ExperimentSummary]) -> String {
             number(m.recall_bot),
             number(m.recall_agent),
         );
+    }
+
+    out.push_str("\n## Label counts\n\n");
+    out.push_str("| Experiment | Tune human | Tune bot | Tune agent | Test human | Test bot | Test agent |\n");
+    out.push_str("|---|---|---|---|---|---|---|\n");
+    for summary in summaries {
+        let (tune, test) = (&summary.labels.tune, &summary.labels.test);
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {} | {} | {} |",
+            summary.name(),
+            tune.human,
+            tune.bot,
+            tune.agent,
+            test.human,
+            test.bot,
+            test.agent
+        );
+    }
+
+    if summaries.iter().any(|s| s.repeatability.is_some()) {
+        out.push_str("\n## Repeatability\n\n");
+        out.push_str("Every item passes through the experiment more than once. The standard deviation uses the sample formula.\n\n");
+        out.push_str("| Experiment | Repeats | Items | Mean SD of p_bot | Largest SD of p_bot | Share of items that flip is_bot |\n");
+        out.push_str("|---|---|---|---|---|---|\n");
+        for summary in summaries {
+            let Some(r) = &summary.repeatability else {
+                continue;
+            };
+            let _ = writeln!(
+                out,
+                "| {} | {} | {} | {:.4} | {:.4} | {:.3} |",
+                summary.name(),
+                r.repeats,
+                r.items,
+                r.mean_sd,
+                r.max_sd,
+                r.flip_share
+            );
+        }
     }
 
     for summary in summaries {
@@ -127,6 +190,19 @@ mod tests {
             model_version: ModelVersion(model.into()),
             metadata_version: MetadataVersion(metadata.into()),
             question_version: QuestionVersion("v1".into()),
+            labels: SplitLabelCounts {
+                tune: LabelCounts {
+                    human: 1,
+                    bot: 1,
+                    agent: 0,
+                },
+                test: LabelCounts {
+                    human: 1,
+                    bot: 0,
+                    agent: 1,
+                },
+            },
+            repeatability: None,
             metrics: evaluate(&samples, 0.5),
         }
     }
@@ -149,6 +225,26 @@ mod tests {
         assert!(md.contains("x-axis \"Mean p_bot\" [0.10, 0.20, 0.80, 0.90]"));
         assert!(md.contains("    line [0.00, 0.00, 1.00, 1.00]"));
         assert!(md.contains("    line [0.10, 0.20, 0.80, 0.90]"));
+    }
+
+    #[test]
+    fn render_adds_label_counts_and_a_repeatability_table_only_when_repeats_exist() {
+        let plain = render(&[summary("fake", "v1")]);
+        assert!(plain.contains("## Label counts"));
+        assert!(plain.contains("| fake / v1 / v1 | 1 | 1 | 0 | 1 | 0 | 1 |"));
+        assert!(!plain.contains("## Repeatability"));
+
+        let mut repeated = summary("fake", "v1");
+        repeated.repeatability = Some(Repeatability {
+            repeats: 5,
+            items: 50,
+            mean_sd: 0.01,
+            max_sd: 0.2,
+            flip_share: 0.04,
+        });
+        let md = render(&[repeated]);
+        assert!(md.contains("## Repeatability"));
+        assert!(md.contains("| fake / v1 / v1 | 5 | 50 | 0.0100 | 0.2000 | 0.040 |"));
     }
 
     #[test]

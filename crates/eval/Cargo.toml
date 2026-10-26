@@ -4,15 +4,24 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+integration = []
+
 [dependencies]
+classifier = { path = "../classifier" }
+db = { path = "../db" }
+metadata = { path = "../metadata" }
 clap = { version = "4", features = ["derive"] }
 scraper = { path = "../scraper" }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls"] }
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 types = { path = "../types" }
+uuid.workspace = true
 
 [dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 wiremock = "0.6"
