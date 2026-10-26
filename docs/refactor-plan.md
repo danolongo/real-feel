@@ -498,32 +498,32 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 
 **Tasks**
 
-- [ ] **3.1** `infra/terraform`: You split the configuration into a `bootstrap` configuration and a main configuration.
+- [x] **3.1** `infra/terraform`: You split the configuration into a `bootstrap` configuration and a main configuration.
   - `bootstrap` creates the S3 bucket for the Terraform state file. The bucket has versioning, encryption, blocked public access, and `prevent_destroy`. `terraform destroy` on the main configuration never touches it.
   - The main configuration holds the modules `network`, `database`, `queues`, `compute`, `registry`, and `iam`. The provider's `default_tags` tag every resource with `project=real-feel`.
-- [ ] **3.2** `network`: You create one VPC with public subnets and private subnets. No NAT gateway.
+- [x] **3.2** `network`: You create one VPC with public subnets and private subnets. No NAT gateway.
   - The API instance and the worker instance sit in a public subnet with a public IP. The workers reach SQS, ECR, SSM, twitterapi.io, and Cloudflare directly.
   - RDS sits in the private subnets.
   - The API security group allows port 80 only from `operator_cidr`, a Terraform variable. Anyone else who found the Elastic IP could spend your twitterapi.io and Cloudflare credit.
   - The worker security group allows no inbound traffic. The RDS security group allows port 5432 only from the API and worker security groups.
-- [ ] **3.3** `database`: You create RDS Postgres 16 on the smallest instance class: single-AZ, 20 GB gp3, `skip_final_snapshot = true`, `deletion_protection = false`, `backup_retention_period = 1`. RDS manages the master password in Secrets Manager. pgvector is available on RDS, so this task creates no extension.
-- [ ] **3.4** `queues`: You create `scraper-jobs`, `classifier-jobs`, and their DLQs, with `maxReceiveCount = 5` and a visibility timeout of 300 seconds.
-- [ ] **3.5** `registry`: You create the ECR repositories `api` and `worker` with `force_delete = true`. You write one multi-stage Dockerfile with the targets `api` and `worker`. cargo-chef caches the dependencies in their own layer. The images are `linux/arm64`. `deploy.yml` builds them natively on an ARM runner, and CI builds them on every PR. The build compiles with `SQLX_OFFLINE=true` and reads `.sqlx/` from the build context.
-- [ ] **3.6** `compute`: You create one Graviton `t4g` EC2 instance for the API and one for the workers. Each runs Docker. Each instance profile has `AmazonSSMManagedInstanceCore`, ECR pull on the two repositories, and `ssm:GetParametersByPath` on `/real-feel/*`. The worker profile also has SQS send, receive, and delete on the four queues.
+- [x] **3.3** `database`: You create RDS Postgres 16 on the smallest instance class: single-AZ, 20 GB gp3, `skip_final_snapshot = true`, `deletion_protection = false`, `backup_retention_period = 1`. RDS manages the master password in Secrets Manager. pgvector is available on RDS, so this task creates no extension.
+- [x] **3.4** `queues`: You create `scraper-jobs`, `classifier-jobs`, and their DLQs, with `maxReceiveCount = 5` and a visibility timeout of 300 seconds.
+- [x] **3.5** `registry`: You create the ECR repositories `api` and `worker` with `force_delete = true`. You write one multi-stage Dockerfile with the targets `api` and `worker`. cargo-chef caches the dependencies in their own layer. The images are `linux/arm64`. `deploy.yml` builds them natively on an ARM runner, and CI builds them on every PR. The build compiles with `SQLX_OFFLINE=true` and reads `.sqlx/` from the build context.
+- [x] **3.6** `compute`: You create one Graviton `t4g` EC2 instance for the API and one for the workers. Each runs Docker. Each instance profile has `AmazonSSMManagedInstanceCore`, ECR pull on the two repositories, and `ssm:GetParametersByPath` on `/real-feel/*`. The worker profile also has SQS send, receive, and delete on the four queues.
   - Terraform writes the configuration that is not secret to SSM Parameter Store as `String` parameters: the queue URLs, the DLQ URLs, the RDS endpoint, `AWS_REGION`, the default model, metadata, and question versions, `BATCH_SIZE`, and `JOB_DEADLINE_SECS`.
   - Terraform creates each secret as a `SecureString` parameter with a placeholder value and `ignore_changes = [value]`. You set the real values once with `aws ssm put-parameter`: `TWITTERAPI_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and the Datadog API key. No secret enters the Terraform state file.
   - A restart script on each instance reads `/real-feel/*` from SSM, writes an env file, and runs each container with `docker run --env-file` on the Docker network `real-feel`. The API container publishes port 80.
-- [ ] **3.7** `iam`: You create two roles.
+- [x] **3.7** `iam`: You create two roles.
   - The GitHub Actions role trusts OIDC tokens only with `aud = sts.amazonaws.com` and `sub = repo:danolongo/real-feel:ref:refs/heads/main`. It can push to the two ECR repositories, call `ecr:GetAuthorizationToken`, run `AWS-RunShellScript` only on instances tagged `project=real-feel`, and read the command results. It cannot do anything else.
   - The Datadog integration role lets Datadog read the CloudWatch metrics of SQS, RDS, and EC2, and list those resources with their tags. It cannot do anything else.
-- [ ] **3.8** You write `deploy.yml`. It runs after `ci.yml` succeeds on `main`, and on `workflow_dispatch`.
+- [x] **3.8** You write `deploy.yml`. It runs after `ci.yml` succeeds on `main`, and on `workflow_dispatch`.
   1. It starts Postgres as a service container, applies the migrations, and runs `cargo sqlx prepare --workspace`.
   2. It builds the images, tags them with the git SHA, and pushes them to ECR.
   3. It runs the restart script on the API instance through SSM Run Command, then on the worker instance. The API runs the migrations before the workers start.
   4. It waits for each command and fails when a command fails.
-- [ ] **3.9** You run the Datadog agent as a container on both instances. It joins the Docker network `real-feel` as `datadog-agent`, receives OpenTelemetry traces on `http://datadog-agent:4318`, and collects the JSON logs of every container. Each container gets at least 10 seconds after `SIGTERM`, so it flushes its spans. You build a first dashboard: request rate, error rate, queue depth, and the time from `queued` to `done`.
-- [ ] **3.10** You write `infra/terraform/README.md`: setup, the SSM secrets, the first deploy, teardown, and costs. Costs include the public IPv4 addresses. After `terraform apply`, you run `deploy.yml` by hand, because the new ECR repositories are empty.
-- [ ] **3.11** `crates/api` and `crates/worker`:
+- [x] **3.9** You run the Datadog agent as a container on both instances. It joins the Docker network `real-feel` as `datadog-agent`, receives OpenTelemetry traces on `http://datadog-agent:4318`, and collects the JSON logs of every container. Each container gets at least 10 seconds after `SIGTERM`, so it flushes its spans. You build a first dashboard: request rate, error rate, queue depth, and the time from `queued` to `done`.
+- [x] **3.10** You write `infra/terraform/README.md`: setup, the SSM secrets, the first deploy, teardown, and costs. Costs include the public IPv4 addresses. After `terraform apply`, you run `deploy.yml` by hand, because the new ECR repositories are empty.
+- [x] **3.11** `crates/api` and `crates/worker`:
   - The API runs `db::MIGRATOR` at startup, before it binds the port.
   - The worker that sets a query to `done` logs `queued_to_done_ms`. The Datadog dashboard reads it.
 
@@ -533,7 +533,7 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
 
 **Gate**
 
-- [ ] A merge to `main` deploys new images with no manual steps.
+- [x] A merge to `main` deploys new images with no manual steps.
 - [ ] One real query completes on AWS.
 - [ ] Datadog shows one trace that spans the API, the scraper worker, and the classifier worker.
 - [ ] `terraform destroy` followed by `terraform apply` and one `deploy.yml` run rebuilds the stack. You prove it once.
