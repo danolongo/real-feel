@@ -19,6 +19,7 @@ This plan rebuilds Real Feel as an all-Rust system on AWS.
 9. [Documentation](#documentation)
 10. [Milestones](#milestones)
 11. [Risks](#risks)
+12. [Future improvements](#future-improvements)
 
 ## Goal
 
@@ -739,3 +740,9 @@ You plan each of these when M8 closes. Each becomes its own spike and decision r
 | Paid service costs run high in tests | Budget overrun | CI uses fakes. Only `nightly.yml` and manual runs call paid services. The `eval` binary prints the cost first. |
 | Hand labeling takes too long | M4 has a small eval set | Label 300 accounts first. Cresci-2017 is public. |
 | Cloudflare changes the hosted backend | Hosted experiments drift | `nightly.yml` catches contract changes. Every prediction stores its model version. |
+
+## Future improvements
+
+These items have no milestone yet.
+
+- **Salted API key hashes.** D18 stores each API key as a SHA-256 hash. A later change salts each hash and uses a slow algorithm such as bcrypt. A stolen `api_keys` table then costs an attacker far more work per key.
