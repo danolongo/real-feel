@@ -87,6 +87,8 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | liveness check | noun | The `GET /health` route. It returns `200` while the process runs and checks no dependency. | health probe |
 | readiness check | noun | The `GET /ready` route. It returns `200` when Postgres and SQS respond, and `503` when either does not. | ready probe |
 | error code | noun | The `code` field of an API error response, such as `invalid_query`. | error type, error name |
+| API key | noun | A long random string that a client sends in the `Authorization` header to call the API. Postgres stores only its SHA-256 hash. | token, password |
+| query quota | noun | The number of new queries that one API key may create in one hour. | query limit |
 
 ## Models
 
@@ -110,7 +112,7 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | break point | noun | The request rate at which a load test first fails its targets. | limit, ceiling |
 | contract test | noun | A test that sends one fixed model input to an inference backend and checks the shape of the answer. It spends real money, so it never runs in `ci.yml`. | smoke test, integration test |
 | nightly workflow | noun | The GitHub Actions workflow `nightly.yml`. It runs the contract test once a day. | cron job |
-| milestone | noun | A numbered stage of the refactor plan (M0–M8). | phase, sprint |
+| milestone | noun | A numbered stage of the refactor plan (M0–M9). | phase, sprint |
 | gate | noun | The checklist that must hold true before you close a milestone. | exit criteria, acceptance |
 | spike | noun | Short, time-boxed research that answers one question and ends in a decision. | investigation, POC |
 | decision record | noun | A file in `docs/decisions/` that records one decision and its reasons. Short form: ADR. | design doc |
