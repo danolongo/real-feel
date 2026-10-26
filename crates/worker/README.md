@@ -37,7 +37,7 @@ Classifier role, steps 10 to 13:
 2. The classifier worker finds the tweets that have no prediction for the model version, `DEFAULT_METADATA_VERSION`, and `DEFAULT_QUESTION_VERSION`.
 3. The classifier worker builds one model input for each of those tweets with `metadata::build`.
 4. The classifier sends the model inputs to the inference backend.
-5. The classifier worker calls `db::finish_batch`. It commits the predictions and the `query_batches` row in one transaction, and sets `done` after the last batch.
+5. The classifier worker calls `db::finish_batch`. It commits the predictions and the `query_batches` row in one transaction, and sets `done` after the last batch. The worker that sets `done` logs `queued_to_done_ms`, the time from the creation of the query to now. The scraper worker logs it too when the scraper finds no tweets.
 
 Failure flow, in both roles:
 

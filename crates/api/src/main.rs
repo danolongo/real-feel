@@ -42,11 +42,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _telemetry = telemetry::init("api")?;
     let config = Config::from_env()?;
 
+    let db = PgPoolOptions::new()
+        .acquire_timeout(Duration::from_secs(5))
+        .connect(&config.database_url)
+        .await?;
+    db::MIGRATOR.run(&db).await?;
+    tracing::info!("migrations applied");
+
     let state = AppState {
-        db: PgPoolOptions::new()
-            .acquire_timeout(Duration::from_secs(5))
-            .connect(&config.database_url)
-            .await?,
+        db,
         queue: Queue::connect(config.scraper_queue_url).await,
         versions: Arc::new(config.versions),
         query_reuse: config.query_reuse,

@@ -1,6 +1,10 @@
 #![cfg(feature = "integration")]
 
-use std::time::Duration;
+use std::{
+    io,
+    sync::{Arc, Mutex, OnceLock},
+    time::Duration,
+};
 
 use aws_sdk_sqs::{Client, types::QueueAttributeName};
 use classifier::Fake as FakeClassifier;
@@ -8,6 +12,7 @@ use db::{PgPool, Versions};
 use queue::Queue;
 use scraper::Fixture;
 use serde_json::json;
+use tracing_subscriber::fmt::MakeWriter;
 use types::{
     ClassifierJob, MetadataVersion, ModelVersion, QueryStatus, QuestionVersion, ScraperJob,
 };
@@ -205,6 +210,35 @@ impl Stack {
     }
 }
 
+/// Collects the log lines of the test thread.
+#[derive(Clone, Default)]
+struct Logs(Arc<Mutex<Vec<u8>>>);
+
+impl io::Write for Logs {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl MakeWriter<'_> for Logs {
+    type Writer = Logs;
+
+    fn make_writer(&self) -> Logs {
+        self.clone()
+    }
+}
+
+impl Logs {
+    fn text(&self) -> String {
+        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+    }
+}
+
 /// Loads the shape of the default fixture, 5 tweets, with IDs that no other test run shares.
 fn fixture() -> Fixture {
     let run = Uuid::new_v4();
@@ -377,5 +411,53 @@ async fn the_dlq_reader_fails_a_query_that_the_worker_left_open() {
 
     let query = db::fetch_query(&stack.db, query_id).await.unwrap().unwrap();
     assert!(query.error.is_some());
+    stack.delete().await;
+}
+
+#[tokio::test]
+async fn the_worker_that_sets_done_logs_queued_to_done_ms() {
+    // A global subscriber, because a per-thread one misses callsites that parallel tests registered.
+    static LOGS: OnceLock<Logs> = OnceLock::new();
+    let logs = LOGS.get_or_init(|| {
+        let logs = Logs::default();
+        tracing::subscriber::set_global_default(
+            tracing_subscriber::fmt()
+                .with_writer(logs.clone())
+                .with_ansi(false)
+                .finish(),
+        )
+        .unwrap();
+        logs
+    });
+    let stack = Stack::create().await;
+    let (query_id, jobs) = stack.classifying_query().await;
+    let logged = |query_id: Uuid| {
+        logs.text()
+            .lines()
+            .filter(|line| {
+                line.contains("queued_to_done_ms=") && line.contains(&query_id.to_string())
+            })
+            .count()
+    };
+    let classifier_role = stack.classifier_role(FakeClassifier::new(0.5, 0)).await;
+    for job in &jobs[..2] {
+        classifier_role.handle(job).await.unwrap();
+    }
+    assert_eq!(logged(query_id), 0);
+    classifier_role.handle(&jobs[2]).await.unwrap();
+    assert_eq!(logged(query_id), 1);
+
+    let empty = db::insert_query(&stack.db, "ai").await.unwrap();
+    let scraper_role = stack
+        .scraper_role(load(json!({ "accounts": [], "tweets": [] })))
+        .await;
+    scraper_role
+        .handle(&ScraperJob {
+            query_id: empty.id,
+            trace_context: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(logged(empty.id), 1);
     stack.delete().await;
 }

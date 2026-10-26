@@ -58,8 +58,9 @@ impl<S: Scraper + Sync> ScraperRole<S> {
         }
         let tweet_ids = db::query_tweet_ids(db, id).await?;
         if tweet_ids.is_empty() {
-            db::set_status(db, id, QueryStatus::Done, None).await?;
-            tracing::info!("no tweets, query done");
+            if db::set_status(db, id, QueryStatus::Done, None).await? {
+                self.context.log_queued_to_done(id).await;
+            }
             return Ok(());
         }
         let batches: Vec<_> = tweet_ids.chunks(self.batch_size).collect();

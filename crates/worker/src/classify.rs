@@ -59,7 +59,7 @@ impl<C: Classifier + Sync> ClassifierRole<C> {
         let done = db::finish_batch(db, job.query_id, job.batch_number, &predictions).await?;
         tracing::info!(predictions = predictions.len(), "batch finished");
         if done {
-            tracing::info!("every batch finished, query done");
+            self.context.log_queued_to_done(job.query_id).await;
         }
         Ok(())
     }

@@ -1,0 +1,107 @@
+name: deploy
+
+on:
+  workflow_run:
+    workflows: [ci]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04-arm
+    env:
+      POSTGRES_PASSWORD: ci-password
+      DATABASE_URL: postgres://realfeel:ci-password@localhost:5433/realfeel
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - run: docker compose up -d --wait postgres
+      - name: Apply the migrations so sqlx can check queries
+        run: |
+          for file in crates/db/migrations/*.sql; do
+            docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -q -U realfeel -d realfeel < "$file"
+          done
+      - name: Install the toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Cache sqlx-cli
+        id: sqlx-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-sqlx
+          key: sqlx-cli-0.9.0
+      - name: Install sqlx-cli
+        if: steps.sqlx-cli.outputs.cache-hit != 'true'
+        run: cargo install sqlx-cli --version 0.9.0 --locked --no-default-features --features rustls,postgres
+      - name: Write the sqlx query data
+        run: cargo sqlx prepare --workspace
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - uses: docker/setup-buildx-action@v4
+      # The API build writes the shared build stage to the cache. The worker build reuses it.
+      - name: Build and push the API image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: infra/docker/Dockerfile
+          target: api
+          platforms: linux/arm64
+          provenance: false
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/real-feel/api:${{ env.SHA }}
+          cache-from: type=gha,scope=images
+          cache-to: type=gha,scope=images,mode=max
+      - name: Build and push the worker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: infra/docker/Dockerfile
+          target: worker
+          platforms: linux/arm64
+          provenance: false
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/real-feel/worker:${{ env.SHA }}
+          cache-from: type=gha,scope=images
+      - name: Restart the API, then the workers
+        run: |
+          for role in api worker; do
+            command_id=$(aws ssm send-command \
+              --document-name AWS-RunShellScript \
+              --targets "Key=tag:role,Values=${role}" \
+              --parameters "commands=[\"/opt/real-feel/restart.sh ${SHA}\"]" \
+              --query Command.CommandId --output text)
+            status=Pending
+            for _ in $(seq 120); do
+              sleep 5
+              status=$(aws ssm list-command-invocations --command-id "$command_id" \
+                --query 'CommandInvocations[0].Status' --output text)
+              case "$status" in
+                Success | Failed | Cancelled | TimedOut) break ;;
+              esac
+            done
+            aws ssm list-command-invocations --command-id "$command_id" --details \
+              --query 'CommandInvocations[].CommandPlugins[].Output' --output text
+            if [ "$status" != Success ]; then
+              echo "restart.sh ended with status ${status} on the ${role} instance" >&2
+              exit 1
+            fi
+          done

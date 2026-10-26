@@ -166,6 +166,19 @@ impl Context {
         }
     }
 
+    /// Logs `queued_to_done_ms`, the time from the creation of the query to now.
+    async fn log_queued_to_done(&self, query_id: Uuid) {
+        match db::fetch_query(&self.db, query_id).await {
+            Ok(Some(query)) => tracing::info!(
+                %query_id,
+                queued_to_done_ms = (chrono::Utc::now() - query.created_at).num_milliseconds(),
+                "query done"
+            ),
+            Ok(None) => {}
+            Err(error) => tracing::warn!(%error, "cannot read the query to log its time to done"),
+        }
+    }
+
     async fn fail(&self, query_id: Uuid, error: &str) {
         if let Err(error) =
             db::set_status(&self.db, query_id, QueryStatus::Failed, Some(error)).await

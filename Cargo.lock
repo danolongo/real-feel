@@ -3653,6 +3653,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-sqs",
  "axum",
+ "chrono",
  "classifier",
  "db",
  "futures",
@@ -3666,6 +3667,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "types",
  "uuid",
 ]
