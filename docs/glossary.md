@@ -41,6 +41,8 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | label | noun | The known truth for one eval set item: `human`, `bot`, or `agent`. Never a verb. | ground truth, tag |
 | agent account | noun | A bot that an LLM runs. It writes its own tweets. Label value: `agent`. | AI bot, LLM bot |
 | recent tweets | noun | The latest tweets of one account, which `eval collect` fetches apart from the tweet that matched the query. | timeline, history |
+| blue check | noun | The paid verification mark on an X account. Anyone can buy it, so it flags a bot only slightly. Field name: `is_verified`; key in `state`: `blue_check`. | verified badge, verification |
+| account age | noun | The days between the join date of an account and the posting time of a tweet. The classifier never reads the clock for it. Key in `state`: `age_days`. | account lifetime, tenure |
 | LLM text | noun | Tweet text that an LLM wrote, whoever posted it. Field name: `is_llm_text`. | AI text, generated text |
 
 ## Components
