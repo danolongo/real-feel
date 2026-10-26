@@ -19,6 +19,7 @@ This plan rebuilds Real Feel as an all-Rust system on AWS.
 9. [Documentation](#documentation)
 10. [Milestones](#milestones)
 11. [Risks](#risks)
+12. [Future improvements](#future-improvements)
 
 ## Goal
 
@@ -32,7 +33,7 @@ You build this system to learn. You also build it to run at serious load. Two ou
 ## Target architecture
 
 ```text
-                 (M5: ALB + Auto Scaling Group)
+                 (M5: ALB, M6: Auto Scaling Group)
 User ──HTTP──▶ API (Rust, axum, EC2) ──────────▶ Postgres + pgvector (RDS)
                   │                                   ▲
                   │ scraper job                       │ tweets, accounts,
@@ -118,15 +119,16 @@ Each row becomes a decision record in M0. "Agreed" rows come from the design dis
 | D6 | Rust for the API, workers, eval tooling, and shared types. Python only for the reference server. | One language for every component you write. Rust types give compile-time checks across components. Python stays where Clef-flash's own code lives. | Agreed |
 | D7 | The API and workers run on EC2. | Fixed capacity makes load tests measure Real Feel's code, not Lambda's scaling. | Agreed |
 | D8 | Postgres holds query status. DynamoDB goes away. | One database is simpler than two. Postgres handles the load. | Agreed |
-| D9 | One Postgres instance, with connection pooling in M5. Sharding waits for M8. | A million tweets with their accounts and predictions fits in a few GB. Load tests must prove a need before you shard. | Agreed |
-| D10 | No load balancer until M5. Then an ALB with an Auto Scaling Group. | One API instance needs no load balancer. Scaling experiments need one. | Agreed |
-| D11 | You run Clef-flash on your own GPU instance (M6). | Learning goal. You own the model operations end to end. | Agreed |
+| D9 | One Postgres instance, with connection pooling in M6. Sharding waits for M9. | A million tweets with their accounts and predictions fits in a few GB. Load tests must prove a need before you shard. | Agreed |
+| D10 | No load balancer until M5. M5 adds an ALB, and M6 adds an Auto Scaling Group. | One API instance needs no load balancer. Scaling experiments need one. | Agreed |
+| D11 | You run Clef-flash on your own GPU instance (M7). | Learning goal. You own the model operations end to end. | Agreed |
 | D12 | Datadog for observability. The code emits OpenTelemetry. | The Datadog student plan is free for 2 years and covers 10 hosts. OpenTelemetry keeps the code vendor-neutral. | Agreed |
 | D13 | Two queues: `scraper-jobs` and `classifier-jobs`. | Scraping and classifying have different speeds and costs. Two queues let each worker role autoscale on its own queue. | Proposed |
 | D14 | Postgres access through `sqlx`. | Pure Rust. `sqlx` checks SQL against the schema at compile time. | Proposed |
 | D15 | Terraform for AWS infrastructure. Terraform stores its state file in S3 with native S3 locking. | Widely used. Plain configuration files. No extra lock table. | Proposed |
-| D16 | The inference server contract types in `crates/types` generate JSON Schema (task 6.2). The reference server generates its Python models from that JSON Schema. No other type derives `schemars`. | Rust and Python share one contract. CI catches drift between the two. | Proposed |
+| D16 | The inference server contract types in `crates/types` generate JSON Schema (task 7.2). The reference server generates its Python models from that JSON Schema. No other type derives `schemars`. | Rust and Python share one contract. CI catches drift between the two. | Proposed |
 | D17 | GitHub Actions authenticates to AWS with OIDC. | No long-lived AWS keys in GitHub secrets. | Proposed |
+| D18 | Clients authenticate with API keys. Postgres stores each key as a SHA-256 hash. | API keys suit scripts and k6. A key is a long random string, unlike a password, so a fast hash suffices. | Proposed |
 
 ## Open decisions
 
@@ -135,17 +137,17 @@ You make each decision before its deadline. Each decision ends in a decision rec
 | # | Question | Options | Deadline |
 |---|----------|---------|----------|
 | O1 | Can self-hosted Firecrawl fetch X search pages, profiles, and tweets? | Self-hosted Firecrawl; Apify actors; a third-party X data API | Settled in task 2.1: no. The scraper uses twitterapi.io. |
-| O2 | Which embedding model, and how many dimensions? | A Workers AI embedding model; a small embedding model that runs inside the worker | M8, before the embeddings experiment |
+| O2 | Which embedding model, and how many dimensions? | A Workers AI embedding model; a small embedding model that runs inside the worker | M9, before the embeddings experiment |
 | O3 | Which eval set? | Accounts you hand-label from scraped tweets; Cresci-2017; both | M4, task 4.1 |
 | O4 | Which bot threshold? | 0.5 by default; tuned from the eval report | M4, task 4.7 |
-| O5 | How does Clef-flash's schema head run outside Cloudflare? | Hugging Face `transformers` with Cloudflare's code; custom code | M6, task 6.1 |
-| O6 | Which variant does the self-hosted backend run? | `bf16`, `int8`, or `int4`, all on g6.xlarge | M6, task 6.7 |
-| O7 | Does `candle` support Clef-flash's base architecture? | Use `candle` as is; add the architecture to `candle`; stop M7 | M7, task 7.1 |
-| O8 | Which server becomes the default self-hosted backend? | reference server; candle server | M7, task 7.5 |
+| O5 | How does Clef-flash's schema head run outside Cloudflare? | Hugging Face `transformers` with Cloudflare's code; custom code | M7, task 7.1 |
+| O6 | Which variant does the self-hosted backend run? | `bf16`, `int8`, or `int4`, all on g6.xlarge | M7, task 7.7 |
+| O7 | Does `candle` support Clef-flash's base architecture? | Use `candle` as is; add the architecture to `candle`; stop M8 | M8, task 8.1 |
+| O8 | Which server becomes the default self-hosted backend? | reference server; candle server | M8, task 8.5 |
 
 ## Repository layout
 
-This is the layout after M7. Each milestone adds its own parts.
+This is the layout after M8. Each milestone adds its own parts.
 
 ```text
 real-feel/
@@ -163,7 +165,7 @@ real-feel/
 │   ├── api/                   # binary: axum HTTP server
 │   ├── worker/                # binary: --role scraper | classifier
 │   ├── eval/                  # binary: experiments and eval reports
-│   └── inference/             # binary: candle server (M7)
+│   └── inference/             # binary: candle server (M8)
 ├── inference/
 │   └── reference/             # Python reference server (uv)
 ├── infra/
@@ -239,7 +241,7 @@ GitHub Actions runs every workflow.
 | `ci.yml` | every push to `main`; every PR | `rust`, `docs`, `commits`, `integration`, `e2e`, `python`, `contract` | M0, grows each milestone |
 | `deploy.yml` | `ci.yml` succeeds on `main` | build Docker images, push to ECR, roll out to EC2 | M3 |
 | `nightly.yml` | daily schedule; manual | hosted backend contract test; small experiment on the eval set | M2 |
-| `gpu.yml` | manual only | parity tests and benchmarks on the GPU instance | M6 |
+| `gpu.yml` | manual only | parity tests and benchmarks on the GPU instance | M7 |
 
 ### `ci.yml` jobs
 
@@ -248,8 +250,8 @@ GitHub Actions runs every workflow.
 - **commits** (PRs only): `scripts/check-commits.sh` checks the PR title and every commit against the commit format. It rejects any `Co-authored-by` line.
 - **integration** (from M1): after checkout, CI runs `docker compose up -d --wait` to start Postgres (pgvector) and LocalStack. CI applies the migrations with `psql`. CI then runs `cargo test --workspace --features integration`. Integration tests sit behind the `integration` Cargo feature, so the `rust` job never runs them. Each test creates its own queues with unique names and deletes them at the end, so parallel tests never read each other's jobs.
 - **e2e** (from M2): Docker Compose runs Postgres and LocalStack. One test process runs the API and both worker roles with the fixture scraper and the fake classifier. The test sends a query and polls until the status is `done`.
-- **python** (from M6, only when `inference/` changes): `ruff`, `pyright --strict`, `pytest`. A check confirms the generated Python models match the current JSON Schema.
-- **contract** (from M6): the reference server's request and response pass validation against the JSON Schema from `crates/types`.
+- **python** (from M7, only when `inference/` changes): `ruff`, `pyright --strict`, `pytest`. A check confirms the generated Python models match the current JSON Schema.
+- **contract** (from M7): the reference server's request and response pass validation against the JSON Schema from `crates/types`.
 
 CI calls no paid services on PRs. Only `nightly.yml` and `gpu.yml` call paid services.
 
@@ -289,14 +291,15 @@ You write docs as you build. Docs ship in the same PR as the code.
 | M2 | Workers with the hosted backend | A query completes end to end locally |
 | M3 | First AWS deployment | The same flow runs on AWS, with Datadog |
 | M4 | Eval set and metadata versions | Evidence on which metadata version classifies best |
-| M5 | Load tests and autoscaling | Measured break points. ALB, Auto Scaling Groups, SLOs. |
-| M6 | Self-hosted backend: reference server | Clef-flash runs on your own GPU. Quantization cost measured. |
-| M7 | Self-hosted backend: candle server | Rust inference server checked for parity and benchmarked |
-| M8 | Later experiments | Sharding, semantic search, time-series analysis, query decomposition |
+| M5 | Public API | API keys, query quotas, WAF rate limits, HTTPS through an ALB |
+| M6 | Load tests, profiling, and performance | Measured break points, profiles, fixes, Auto Scaling Groups, SLOs |
+| M7 | Self-hosted backend: reference server | Clef-flash runs on your own GPU. Quantization cost measured. |
+| M8 | Self-hosted backend: candle server | Rust inference server checked for parity and benchmarked |
+| M9 | Later experiments | Sharding, semantic search, time-series analysis, query decomposition |
 
 M3 comes before M4 on purpose. You find deployment problems while the system is small.
 
-The self-hosted backend (M6 and M7) comes after the load tests. The load tests need only the hosted backend, and AWS needs days to approve the GPU quota.
+The self-hosted backend (M7 and M8) comes after the load tests. The load tests need only the hosted backend, and AWS needs days to approve the GPU quota.
 
 ---
 
@@ -456,7 +459,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
   - reads Cloudflare's request format for Clef-flash and records it in the crate README
   - retries on `429` and `5xx` with exponential backoff and jitter
   - stays under a configured requests-per-second limit
-- [x] **2.5** ~~`crates/embedder`~~ Deferred to M8. You built a Workers AI embedder, then removed it, because no task reads embeddings. O2 moves to M8.
+- [x] **2.5** ~~`crates/embedder`~~ Deferred to M9. You built a Workers AI embedder, then removed it, because no task reads embeddings. O2 moves to M9.
 - [x] **2.6** `crates/worker`, role `scraper`: the worker takes a scraper job and carries out steps 5–9 of the [request flow](#request-flow). `BATCH_SIZE` sets the batch size. A redelivered scraper job follows the [failure flow](#failure-flow).
 - [x] **2.7** `crates/worker`, role `classifier`: the worker takes a classifier job and carries out steps 10–13. The worker opens one Postgres transaction and locks the query row first. In that transaction it upserts the predictions and the `query_batches` row, counts the batches, and changes the status. The race test runs this commit step from two tasks at once behind a `tokio::sync::Barrier`.
 - [x] **2.8** `crates/worker`: You add the [failure flow](#failure-flow), the job deadline, and the dead-letter queue reader. A fake classifier that fails N times proves the retry and the DLQ. The tests create their own queues with a 1-second visibility timeout and `maxReceiveCount` 5.
@@ -479,7 +482,7 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 - [x] A test with zero scraped tweets ends with status `done`.
 - [x] A test sends two identical queries at once. Both get one query ID, and SQS holds one scraper job.
 - [x] `scripts/smoke.sh` completes one real query. The smoke report records it.
-- [x] A decision record settles O1. O2 moves to M8 with the embeddings.
+- [x] A decision record settles O1. O2 moves to M9 with the embeddings.
 
 ---
 
@@ -495,44 +498,46 @@ The worker reads the M1 variables too. `.env.example` lists every variable. `inf
 
 **Tasks**
 
-- [ ] **3.1** `infra/terraform`: You split the configuration into a `bootstrap` configuration and a main configuration.
+- [x] **3.1** `infra/terraform`: You split the configuration into a `bootstrap` configuration and a main configuration.
   - `bootstrap` creates the S3 bucket for the Terraform state file. The bucket has versioning, encryption, blocked public access, and `prevent_destroy`. `terraform destroy` on the main configuration never touches it.
   - The main configuration holds the modules `network`, `database`, `queues`, `compute`, `registry`, and `iam`. The provider's `default_tags` tag every resource with `project=real-feel`.
-- [ ] **3.2** `network`: You create one VPC with public subnets and private subnets. No NAT gateway.
+- [x] **3.2** `network`: You create one VPC with public subnets and private subnets. No NAT gateway.
   - The API instance and the worker instance sit in a public subnet with a public IP. The workers reach SQS, ECR, SSM, twitterapi.io, and Cloudflare directly.
   - RDS sits in the private subnets.
   - The API security group allows port 80 only from `operator_cidr`, a Terraform variable. Anyone else who found the Elastic IP could spend your twitterapi.io and Cloudflare credit.
   - The worker security group allows no inbound traffic. The RDS security group allows port 5432 only from the API and worker security groups.
-- [ ] **3.3** `database`: You create RDS Postgres 16 on the smallest instance class: single-AZ, 20 GB gp3, `skip_final_snapshot = true`, `deletion_protection = false`, `backup_retention_period = 1`. RDS manages the master password in Secrets Manager. pgvector is available on RDS, so this task creates no extension.
-- [ ] **3.4** `queues`: You create `scraper-jobs`, `classifier-jobs`, and their DLQs, with `maxReceiveCount = 5` and a visibility timeout of 300 seconds.
-- [ ] **3.5** `registry`: You create the ECR repositories `api` and `worker` with `force_delete = true`. You write one multi-stage Dockerfile with the targets `api` and `worker`. cargo-chef caches the dependencies in their own layer. The images are `linux/arm64`. `deploy.yml` builds them natively on an ARM runner, and CI builds them on every PR. The build compiles with `SQLX_OFFLINE=true` and reads `.sqlx/` from the build context.
-- [ ] **3.6** `compute`: You create one Graviton `t4g` EC2 instance for the API and one for the workers. Each runs Docker. Each instance profile has `AmazonSSMManagedInstanceCore`, ECR pull on the two repositories, and `ssm:GetParametersByPath` on `/real-feel/*`. The worker profile also has SQS send, receive, and delete on the four queues.
+- [x] **3.3** `database`: You create RDS Postgres 16 on the smallest instance class: single-AZ, 20 GB gp3, `skip_final_snapshot = true`, `deletion_protection = false`, `backup_retention_period = 1`. RDS manages the master password in Secrets Manager. pgvector is available on RDS, so this task creates no extension.
+- [x] **3.4** `queues`: You create `scraper-jobs`, `classifier-jobs`, and their DLQs, with `maxReceiveCount = 5` and a visibility timeout of 300 seconds.
+- [x] **3.5** `registry`: You create the ECR repositories `api` and `worker` with `force_delete = true`. You write one multi-stage Dockerfile with the targets `api` and `worker`. cargo-chef caches the dependencies in their own layer. The images are `linux/arm64`. `deploy.yml` builds them natively on an ARM runner, and CI builds them on every PR. The build compiles with `SQLX_OFFLINE=true` and reads `.sqlx/` from the build context.
+- [x] **3.6** `compute`: You create one Graviton `t4g` EC2 instance for the API and one for the workers. Each runs Docker. Each instance profile has `AmazonSSMManagedInstanceCore`, ECR pull on the two repositories, and `ssm:GetParametersByPath` on `/real-feel/*`. The worker profile also has SQS send, receive, and delete on the four queues.
   - Terraform writes the configuration that is not secret to SSM Parameter Store as `String` parameters: the queue URLs, the DLQ URLs, the RDS endpoint, `AWS_REGION`, the default model, metadata, and question versions, `BATCH_SIZE`, and `JOB_DEADLINE_SECS`.
   - Terraform creates each secret as a `SecureString` parameter with a placeholder value and `ignore_changes = [value]`. You set the real values once with `aws ssm put-parameter`: `TWITTERAPI_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and the Datadog API key. No secret enters the Terraform state file.
   - A restart script on each instance reads `/real-feel/*` from SSM, writes an env file, and runs each container with `docker run --env-file` on the Docker network `real-feel`. The API container publishes port 80.
-- [ ] **3.7** `iam`: You create two roles.
+- [x] **3.7** `iam`: You create two roles.
   - The GitHub Actions role trusts OIDC tokens only with `aud = sts.amazonaws.com` and `sub = repo:danolongo/real-feel:ref:refs/heads/main`. It can push to the two ECR repositories, call `ecr:GetAuthorizationToken`, run `AWS-RunShellScript` only on instances tagged `project=real-feel`, and read the command results. It cannot do anything else.
   - The Datadog integration role lets Datadog read the CloudWatch metrics of SQS, RDS, and EC2, and list those resources with their tags. It cannot do anything else.
-- [ ] **3.8** You write `deploy.yml`. It runs after `ci.yml` succeeds on `main`, and on `workflow_dispatch`.
+- [x] **3.8** You write `deploy.yml`. It runs after `ci.yml` succeeds on `main`, and on `workflow_dispatch`.
   1. It starts Postgres as a service container, applies the migrations, and runs `cargo sqlx prepare --workspace`.
   2. It builds the images, tags them with the git SHA, and pushes them to ECR.
   3. It runs the restart script on the API instance through SSM Run Command, then on the worker instance. The API runs the migrations before the workers start.
   4. It waits for each command and fails when a command fails.
-- [ ] **3.9** You run the Datadog agent as a container on both instances. It joins the Docker network `real-feel` as `datadog-agent`, receives OpenTelemetry traces on `http://datadog-agent:4318`, and collects the JSON logs of every container. Each container gets at least 10 seconds after `SIGTERM`, so it flushes its spans. You build a first dashboard: request rate, error rate, queue depth, and the time from `queued` to `done`.
-- [ ] **3.10** You write `infra/terraform/README.md`: setup, the SSM secrets, the first deploy, teardown, and costs. Costs include the public IPv4 addresses. After `terraform apply`, you run `deploy.yml` by hand, because the new ECR repositories are empty.
-- [ ] **3.11** `crates/api` and `crates/worker`:
+- [x] **3.9** You run the Datadog agent as a container on both instances. It joins the Docker network `real-feel` as `datadog-agent`, receives OpenTelemetry traces on `http://datadog-agent:4318`, and collects the JSON logs of every container. Each container gets at least 10 seconds after `SIGTERM`, so it flushes its spans. You build a first dashboard: request rate, error rate, queue depth, and the time from `queued` to `done`.
+- [x] **3.10** You write `infra/terraform/README.md`: setup, the SSM secrets, the first deploy, teardown, and costs. Costs include the public IPv4 addresses. After `terraform apply`, you run `deploy.yml` by hand, because the new ECR repositories are empty.
+- [x] **3.11** `crates/api` and `crates/worker`:
   - The API runs `db::MIGRATOR` at startup, before it binds the port.
   - The worker that sets a query to `done` logs `queued_to_done_ms`. The Datadog dashboard reads it.
 
 The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in M5.
 
+The stack runs only while you work on it. You run `terraform destroy` at the end of every work session and `apply` plus `deploy.yml` at the start of the next one. `infra/terraform/README.md` lists the steps.
+
 **Docs:** `infra/terraform/README.md`, plus a decision record for any change to D15 or D17.
 
 **Gate**
 
-- [ ] A merge to `main` deploys new images with no manual steps.
-- [ ] One real query completes on AWS.
-- [ ] Datadog shows one trace that spans the API, the scraper worker, and the classifier worker.
+- [x] A merge to `main` deploys new images with no manual steps.
+- [x] One real query completes on AWS.
+- [x] Datadog shows one trace that spans the API, the scraper worker, and the classifier worker.
 - [ ] `terraform destroy` followed by `terraform apply` and one `deploy.yml` run rebuilds the stack. You prove it once.
 - [ ] The AWS Budgets alert covers the new resources.
 
@@ -552,11 +557,17 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
   - `v4`: `v3` plus profile description and profile URL
   Each version gets a field-by-field definition in the README and its own unit tests.
 - [ ] **4.4** `crates/metadata`: You write question versions that word the bot question in different ways.
+  - Clef-flash takes no system prompt and no sampling settings. A request holds `model`, `state`, `questions`, and optional `images`.
+  - Each question carries its own `instructions`. A `choice` question and a `score` question also take `criteria`. These fields are the prompt.
+  - `state` accepts structured data, not only text. A metadata version can send the tweet and the account fields as one JSON object.
+  - One request takes up to 64 questions. The bot question and the LLM-writing question of task 4.11 can share one request.
 - [ ] **4.5** `crates/eval`: You build the `eval` binary. `eval experiment --model-version … --metadata-version … --question-version …` runs one experiment. The binary prints the expected cost before it calls a paid backend, and asks you to confirm.
 - [ ] **4.6** `crates/eval`: The binary computes accuracy, precision, recall, F1, ROC-AUC, Brier score, and expected calibration error. Postgres stores every experiment. `eval report` writes an eval report that compares experiments.
 - [ ] **4.7** You settle O4 from the eval report. You record the chosen bot threshold in a decision record. The API adds `is_bot` to the result.
 - [ ] **4.8** You compare each metadata version's fields against the fields twitterapi.io returns. You list the gaps in the eval report.
 - [ ] **4.9** CI runs one experiment on a ten-item fixture eval set with the fake classifier.
+- [ ] **4.10** You measure how repeatable Clef-flash is. You send each tweet of a 50-tweet sample 5 times with the same input and report the spread of `p_bot`. A wide spread limits every comparison in the eval report.
+- [ ] **4.11** You test whether LLM-written text raises `p_bot`. The live test scored a tweet with typical LLM phrasing and odd semicolon use at 0.14. The eval set gets a labeled group of LLM-written tweets. A question version asks about LLM writing on its own, because a human can post LLM text and the bot question asks about the account.
 
 **Docs:** `crates/eval/README.md`, `docs/reports/eval-m4.md`, decision records for O3 and O4 and the default metadata version.
 
@@ -569,68 +580,113 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
 
 ---
 
-### M5: Load tests and autoscaling
+### M5: Public API: authentication, rate limits, HTTPS
 
-**Goal:** measured break points, and evidence that each change moved them. The tests use the hosted backend. The self-hosted backend comes in M6 and M7.
+**Goal:** the API is safe to open to the internet. Every query request carries an API key. Limits cap what one client can spend. Traffic reaches the API over HTTPS through an ALB.
 
 **Tasks**
 
-- [ ] **5.1** `loadtest/k6`: You write four scenarios:
+- [ ] **5.1** `crates/db`: You add an `api_keys` table: an ID, a name, the SHA-256 hash of the key, a query quota per hour, the creation time, and the revocation time. The table never stores the key itself. `queries` gains an `api_key_id` column.
+- [ ] **5.2** `crates/api`: You add API key authentication.
+  - A client sends the key in the `Authorization: Bearer <key>` header.
+  - The API hashes the key and looks up the hash. A missing, unknown, or revoked key gets `401`.
+  - `GET /health` and `GET /ready` need no key, so the ALB can check them.
+  - A new `api-key` binary creates and revokes keys. It prints each new key once.
+- [ ] **5.3** `crates/api`: You add the query quota.
+  - Each new query spends twitterapi.io and Cloudflare credit, so the quota counts queries, not requests.
+  - The API counts the key's queries of the past hour in Postgres. Every API instance reads the same count.
+  - A key over its quota gets `429` with a `Retry-After` header.
+  - A reused query creates no new query, so it does not count.
+- [ ] **5.4** `infra/terraform`: You add an ALB in the public subnets.
+  - The HTTPS listener uses a certificate from ACM. The HTTP listener redirects to HTTPS. The ALB checks `GET /health`.
+  - ACM needs a domain name. You register one in Route 53 for about 15 USD per year, or you use one you own.
+  - The ALB security group accepts ports 80 and 443 from anywhere. `operator_cidr` goes away.
+  - The API security group accepts port 80 only from the ALB security group. The API instance loses its Elastic IP.
+- [ ] **5.5** `infra/terraform`: You attach AWS WAF to the ALB.
+  - A rate-based rule limits the requests of one IP address in each 5-minute window. WAF answers `429` above the limit.
+  - The rule covers every route, including the routes that need no key.
+  - The AWS managed core rule set blocks common attack patterns.
+- [ ] **5.6** You ask AWS for a G-instance vCPU quota increase, on-demand and Spot. Ask for 4 vCPUs of each. New accounts start at 0. Approval can take days, so M7 needs this request in early.
+
+**Docs:** `crates/api/README.md` gains a section on authentication and limits: who can call the API, what costs money, and what each limit stops. `infra/terraform/README.md` covers the domain, the certificate, and WAF. A decision record covers D18.
+
+**Gate**
+
+- [ ] A request without a key, with an unknown key, or with a revoked key gets `401`.
+- [ ] A key over its quota gets `429`, and the key's query count stays at the quota.
+- [ ] A burst from one IP address above the WAF limit gets `429` from WAF.
+- [ ] `curl https://<domain>/health` answers over a valid certificate. HTTP redirects to HTTPS. The API instance answers no request from the internet directly.
+- [ ] AWS has received the GPU quota application.
+
+---
+
+### M6: Load tests, profiling, and performance
+
+**Goal:** measured break points, the code paths that limit them, and evidence that each change moved them. The tests use the hosted backend. The self-hosted backend comes in M7 and M8.
+
+**Tasks**
+
+- [ ] **6.1** `loadtest/k6`: You write four scenarios:
   - `smoke`: a low rate that checks the scripts work
   - `ramp`: a rising rate until the targets fail
   - `burst`: a sudden jump in rate
   - `soak`: a steady rate for one hour
 
-  Each scenario sets the share of queries that repeat an earlier query's text. The report gives the query reuse rate next to each break point.
-- [ ] **5.2** You run each scenario in two modes:
+  Each scenario sets the share of queries that repeat an earlier query's text. The report gives the query reuse rate next to each break point. The scripts send an API key whose query quota exceeds the test's rate. The WAF limit allows the load generator's IP address.
+- [ ] **6.2** You run each scenario in two modes:
   - **System only:** fake scraper and fake classifier. The test measures Real Feel's own code.
   - **Full:** real twitterapi.io and the hosted backend. The test measures the whole chain. It costs real money, so run it at a small scale.
-- [ ] **5.3** You record the baseline break points on one API instance. You write `docs/reports/load-baseline.md`.
+- [ ] **6.3** You record the baseline break points on one API instance behind the ALB. You write `docs/reports/load-baseline.md`.
   - The load tests run on a fixed-performance Graviton type such as `c7g` or `m7g`. You set it with the `instance_type` variable of `compute`.
   - A `t4g` instance slows down when its CPU credits run out. Its break points would measure the credit balance, not the code.
-- [ ] **5.4** You add an ALB and an Auto Scaling Group for the API. The ALB checks `GET /health`. ACM provides the HTTPS certificate.
-- [ ] **5.5** You give each worker role its own Auto Scaling Group. Each group scales on its queue's backlog per instance.
-- [ ] **5.6** You add connection pooling: RDS Proxy or PgBouncer. You add a read replica only if the load tests show reads limit throughput.
-- [ ] **5.7** You define SLOs in Datadog: `POST /queries` p99 latency, error rate, and time from `queued` to `done`. You add alerts.
-- [ ] **5.8** You run failure drills during a `soak` test:
+- [ ] **6.4** You profile the API and the workers during a `ramp` test.
+  - You record CPU flame graphs of each binary with `cargo flamegraph`.
+  - You turn on `pg_stat_statements` in RDS and run `EXPLAIN ANALYZE` on the slowest queries.
+  - You use the Datadog traces to find the slowest spans of a query.
+  - The report lists the hot paths in order of cost.
+- [ ] **6.5** You fix the hot paths that the profiles show, one change per PR. Candidates: missing indexes, the connection pool size, `BATCH_SIZE`, and SQS batch sends and receives. You re-run the `ramp` scenario after each change.
+- [ ] **6.6** You add an Auto Scaling Group for the API behind the ALB. It scales on the request count per instance.
+- [ ] **6.7** You give each worker role its own Auto Scaling Group. Each group scales on its queue's backlog per instance.
+- [ ] **6.8** You add connection pooling: RDS Proxy or PgBouncer. You add a read replica only if the load tests show reads limit throughput.
+- [ ] **6.9** You define SLOs in Datadog: `POST /queries` p99 latency, error rate, and time from `queued` to `done`. You add alerts.
+- [ ] **6.10** You run failure drills during a `soak` test:
   - stop an API instance
   - send a broken job to the DLQ
-- [ ] **5.9** You re-run every scenario after each change. You add the numbers to the load test report.
-- [ ] **5.10** You ask AWS for a G-instance vCPU quota increase, on-demand and Spot. Ask for 4 vCPUs of each. New accounts start at 0. Approval can take days, so M6 needs this request in early.
+- [ ] **6.11** You re-run every scenario after each change. You add the numbers to the load test report.
 
-**Docs:** `loadtest/k6/README.md`, `docs/reports/load-m5.md` with before-and-after break points, decision records for the pooling choice and the autoscaling policies.
+**Docs:** `loadtest/k6/README.md`, `docs/reports/load-m6.md` with the profiles and the before-and-after break points, decision records for the pooling choice and the autoscaling policies.
 
 **Gate**
 
-- [ ] The load test report shows break points before and after the ALB, autoscaling, and pooling.
+- [ ] The load test report shows break points before and after the profiling fixes, autoscaling, and pooling.
+- [ ] The report names each hot path and the change that addressed it.
 - [ ] Autoscaling adds and removes instances during a `ramp` test. Datadog shows it.
 - [ ] The failure drills cause no lost queries.
 - [ ] The SLO dashboard and alerts are live.
-- [ ] AWS has received the GPU quota application.
 
 ---
 
-### M6: Self-hosted backend: reference server
+### M7: Self-hosted backend: reference server
 
-**Goal:** Clef-flash runs on your own GPU instance. This milestone needs the quota from task 5.10. Workers can classify through it. You know what quantization costs in accuracy.
+**Goal:** Clef-flash runs on your own GPU instance. This milestone needs the quota from task 5.6. Workers can classify through it. You know what quantization costs in accuracy.
 
 **Tasks**
 
-- [ ] **6.1** **Spike:** You read Clef-flash's model card and code. You confirm that Cloudflare publishes the weights, and under which licence. You find how the schema head runs. You settle O5 in a decision record.
-- [ ] **6.2** `crates/types`: You define the inference server contract: `POST /v1/classify` takes a batch and returns predictions with a model version. The types generate JSON Schema.
-- [ ] **6.3** `inference/reference`: You build the reference server in Python with `uv`. It generates its request and response models from the JSON Schema. It applies dynamic batching with a maximum batch size and a maximum wait.
-- [ ] **6.4** `inference/reference`: You load Clef-flash in the `bf16`, `int8`, and `int4` variants. The variant is a setting.
-- [ ] **6.5** `infra/terraform`: You add a GPU module. It holds a launch template with an NVIDIA Deep Learning AMI, Spot instances, and an Auto Scaling Group of size 0 or 1. A script on the instance shuts the instance down after a set idle time.
-- [ ] **6.6** `crates/classifier`: You write the self-hosted implementation. `CLASSIFIER_BACKEND` selects `hosted`, `self_hosted`, or `fake`.
-- [ ] **6.7** You run the same experiments on each variant and on the hosted backend. You settle O6. The eval report shows:
+- [ ] **7.1** **Spike:** You read Clef-flash's model card and code. You confirm that Cloudflare publishes the weights, and under which licence. You find how the schema head runs. You settle O5 in a decision record.
+- [ ] **7.2** `crates/types`: You define the inference server contract: `POST /v1/classify` takes a batch and returns predictions with a model version. The types generate JSON Schema.
+- [ ] **7.3** `inference/reference`: You build the reference server in Python with `uv`. It generates its request and response models from the JSON Schema. It applies dynamic batching with a maximum batch size and a maximum wait.
+- [ ] **7.4** `inference/reference`: You load Clef-flash in the `bf16`, `int8`, and `int4` variants. The variant is a setting.
+- [ ] **7.5** `infra/terraform`: You add a GPU module. It holds a launch template with an NVIDIA Deep Learning AMI, Spot instances, and an Auto Scaling Group of size 0 or 1. A script on the instance shuts the instance down after a set idle time.
+- [ ] **7.6** `crates/classifier`: You write the self-hosted implementation. `CLASSIFIER_BACKEND` selects `hosted`, `self_hosted`, or `fake`.
+- [ ] **7.7** You run the same experiments on each variant and on the hosted backend. You settle O6. The eval report shows:
   - agreement rate on bot or human against the hosted backend
   - mean absolute difference in bot probability
   - the change in each metric
-- [ ] **6.8** You build the benchmark harness. It sends a fixed set of model inputs at batch sizes 1, 8, 32, and 64. It records throughput, p50, p95, and p99 latency, and GPU memory.
-- [ ] **6.9** You enable Datadog GPU monitoring: GPU use, GPU memory, batch size, inference latency.
-- [ ] **6.10** You add the `python` and `contract` jobs to `ci.yml`. You add `gpu.yml` for benchmarks.
-- [ ] **6.11** You scale the GPU Auto Scaling Group on the `classifier-jobs` backlog, with a minimum of 0.
-- [ ] **6.12** You run a failure drill during a `soak` test: let AWS reclaim a Spot GPU instance.
+- [ ] **7.8** You build the benchmark harness. It sends a fixed set of model inputs at batch sizes 1, 8, 32, and 64. It records throughput, p50, p95, and p99 latency, and GPU memory.
+- [ ] **7.9** You enable Datadog GPU monitoring: GPU use, GPU memory, batch size, inference latency.
+- [ ] **7.10** You add the `python` and `contract` jobs to `ci.yml`. You add `gpu.yml` for benchmarks.
+- [ ] **7.11** You scale the GPU Auto Scaling Group on the `classifier-jobs` backlog, with a minimum of 0.
+- [ ] **7.12** You run a failure drill during a `soak` test: let AWS reclaim a Spot GPU instance.
 
 **Docs:** `inference/reference/README.md`, `docs/reports/quantization-m6.md`, `docs/reports/benchmark-reference.md`, decision records for O5 and O6.
 
@@ -644,17 +700,17 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
 
 ---
 
-### M7: Self-hosted backend: candle server
+### M8: Self-hosted backend: candle server
 
 **Goal:** a Rust inference server that matches the reference server's output. Evidence on whether it is faster.
 
 **Tasks**
 
-- [ ] **7.1** **Spike:** You check whether `candle` supports Clef-flash's base architecture and quantized weights. You list what you must write yourself. You settle O7 in a decision record. If the work is too large, M7 stops here and the decision record says why.
-- [ ] **7.2** `crates/inference`: You load Clef-flash's weights with `candle`. You write the schema head.
-- [ ] **7.3** `crates/inference`: You serve the same `POST /v1/classify` contract. You write dynamic batching with tokio.
-- [ ] **7.4** You write parity tests. Both servers classify the same model inputs. The tests pass when every bot probability differs by less than a tolerance you set in the spike.
-- [ ] **7.5** You run the M6 benchmark harness on the same instance type. You settle O8 in a decision record.
+- [ ] **8.1** **Spike:** You check whether `candle` supports Clef-flash's base architecture and quantized weights. You list what you must write yourself. You settle O7 in a decision record. If the work is too large, M8 stops here and the decision record says why.
+- [ ] **8.2** `crates/inference`: You load Clef-flash's weights with `candle`. You write the schema head.
+- [ ] **8.3** `crates/inference`: You serve the same `POST /v1/classify` contract. You write dynamic batching with tokio.
+- [ ] **8.4** You write parity tests. Both servers classify the same model inputs. The tests pass when every bot probability differs by less than a tolerance you set in the spike.
+- [ ] **8.5** You run the M7 benchmark harness on the same instance type. You settle O8 in a decision record.
 
 **Docs:** `crates/inference/README.md`, `docs/reports/benchmark-candle.md`, decision records for O7 and O8.
 
@@ -666,11 +722,11 @@ The API serves plain HTTP on an Elastic IP in M3. HTTPS arrives with the ALB in 
 
 ---
 
-### M8: Later experiments
+### M9: Later experiments
 
-You plan each of these when M7 closes. Each becomes its own spike and decision record.
+You plan each of these when M8 closes. Each becomes its own spike and decision record.
 
-- **Sharding experiment.** Use Citus or Aurora Limitless if M5 shows one Postgres instance limits throughput. Measure the change with the M5 scenarios.
+- **Sharding experiment.** Use Citus or Aurora Limitless if M6 shows one Postgres instance limits throughput. Measure the change with the M6 scenarios.
 - **Embeddings.** An embedder turns tweet text into embeddings, and Postgres stores them with pgvector. Two uses: near-duplicate tweets across accounts, a sign of coordinated bots, and `GET /search`, which finds tweets by meaning with an HNSW index. Settle O2 first. M2 built a Workers AI embedder on `bge-small-en-v1.5` (384 dimensions) and removed it, because nothing read the embeddings. Git history keeps that code.
 - **Time-series analysis.** Bot and human activity for one topic over time.
 - **Query decomposition.** An LLM splits one query into several scraper jobs and merges their tweets.
@@ -682,13 +738,24 @@ You plan each of these when M7 closes. Each becomes its own spike and decision r
 | Risk | Effect | What you do |
 |------|--------|-------------|
 | twitterapi.io changes its API, raises prices, or shuts down | The scraper stops | `trait Scraper` lets you swap to another X data API. Spike 2.1 lists the alternatives. |
-| Several scraper workers share one `TWITTERAPI_KEY` and together pass its rate limit | The scraper gets `429`s and slows down | Each worker retries a `429`. If the M5 load tests show many `429`s, you add a shared rate limiter: one call budget for the key across all scraper workers. |
+| Several scraper workers share one `TWITTERAPI_KEY` and together pass its rate limit | The scraper gets `429`s and slows down | Each worker retries a `429`. If the M6 load tests show many `429`s, you add a shared rate limiter: one call budget for the key across all scraper workers. |
 | twitterapi.io does not return the metadata that `v2`+ need | M4 compares versions that production cannot fill | Task 4.8 lists the gaps. The eval set has the fields even if live data does not. |
-| Cloudflare does not publish the Clef-flash weights | M6 and M7 stop | Task 6.1 checks the licence before you build anything. |
-| Clef-flash's schema head needs custom code | M6 takes longer | Task 6.1 answers this before you build anything. |
-| `candle` lacks Clef-flash's base architecture | M7 grows large | Task 7.1 can stop M7 with a decision record. |
-| AWS approves GPU quota slowly | M6 waits | Task 5.10 asks during M5, so approval lands before M6. |
+| Cloudflare does not publish the Clef-flash weights | M7 and M8 stop | Task 7.1 checks the licence before you build anything. |
+| Clef-flash's schema head needs custom code | M7 takes longer | Task 7.1 answers this before you build anything. |
+| `candle` lacks Clef-flash's base architecture | M8 grows large | Task 8.1 can stop M8 with a decision record. |
+| AWS approves GPU quota slowly | M7 waits | Task 5.6 asks during M5, so approval lands before M7. |
 | GPU costs run high | Budget overrun | Spot instances, idle shutdown, an Auto Scaling Group minimum of 0, a budget alert. |
 | Paid service costs run high in tests | Budget overrun | CI uses fakes. Only `nightly.yml` and manual runs call paid services. The `eval` binary prints the cost first. |
 | Hand labeling takes too long | M4 has a small eval set | Label 300 accounts first. Cresci-2017 is public. |
 | Cloudflare changes the hosted backend | Hosted experiments drift | `nightly.yml` catches contract changes. Every prediction stores its model version. |
+
+## Future improvements
+
+These items have no milestone yet.
+
+- **Salted API key hashes.** D18 stores each API key as a SHA-256 hash. A later change salts each hash and uses a slow algorithm such as bcrypt. A stolen `api_keys` table then costs an attacker far more work per key.
+- **Terraform in CI.** Today you run `terraform apply` from your machine. A later change moves it into GitHub Actions:
+  - Every PR runs `terraform plan` with a read-only role and posts the diff as a PR comment.
+  - A merge to `main` applies that plan. A protected GitHub Environment asks for approval before production.
+  - The apply role is a separate OIDC role that only `main` can assume.
+  - A scheduled `plan` reports drift from changes made in the AWS console.

@@ -147,7 +147,8 @@ These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-
 - Data transfer, CloudWatch Logs, and the Datadog subscription cost extra.
 - RDS keeps one day of backups, which the free backup allowance covers.
 - The twitterapi.io and Cloudflare charges for real queries cost extra.
-- Stop the cost with `terraform destroy`. A destroyed stack costs only the S3 state bucket.
+- You run `terraform destroy` at the end of every work session. A destroyed stack costs only the S3 state bucket. A running stack costs about 11 USD a week.
+- You run `apply` and `deploy.yml` at the start of the next session, then repeat steps 5 to 8.
 
 ## Failure modes
 
