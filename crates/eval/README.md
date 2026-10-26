@@ -32,7 +32,7 @@ See [glossary.md](../../docs/glossary.md): eval set, label, agent account, recen
 | ROC-AUC | The share of (bot, human) pairs where the bot has the higher `p_bot`. A tie counts half. Empty when the slice holds one class. |
 | Brier | The mean of `(p_bot - outcome)²`. Outcome is 1 for a bot and 0 for a human. |
 | Reliability bins | Ten bins `[0, 0.1)` to `[0.9, 1.0]`. Each holds the count, the mean `p_bot`, and the share of bots. |
-| ECE | The sum over bins of `count / total × |mean p_bot − share of bots|`. |
+| ECE | The sum over bins of count / total × \|mean `p_bot` − share of bots\|. |
 | Recall (bot), recall (agent) | Recall over the items with that label alone. Empty when the slice holds none. |
 
 ## Formats
