@@ -4,7 +4,7 @@
 
 ## Where it sits
 
-k6 sends queries to the API through the ALB. The API and the workers write to Postgres. `seed.sql` and `check-queries.sh` talk to Postgres through an SSM port forward, because RDS stays private.
+k6 sends queries to the API through the ALB. The API and the workers write to Postgres. `preload.sql` and `check-queries.sh` talk to Postgres through an SSM port forward, because RDS stays private.
 
 ## Terms
 
@@ -123,26 +123,26 @@ k6 runs on your laptop first. Move it to a `c7g` instance in `us-east-1` when k6
    psql "$DATABASE_URL"
    ```
 
-## Seed Postgres
+## Fill Postgres with the preload
 
-Run `seed.sql` before the first `ramp` of each session. The stack starts empty after each destroy. Every seed row has a fixed ID, so a second run changes nothing.
+Run `preload.sql` before the first `ramp` of each session. The stack starts empty after each destroy. Every preload row has a fixed ID, so a second run changes nothing.
 
 ```bash
-psql "$DATABASE_URL" -f loadtest/seed.sql
+psql "$DATABASE_URL" -f loadtest/preload.sql
 ```
 
 | psql variable | Default | Meaning |
 |---------------|---------|---------|
-| `seed_accounts` | `20000` | Accounts. IDs start with `seed-account-`. |
-| `seed_tweets` | `100000` | Tweets and predictions. IDs start with `seed-tweet-`. |
-| `seed_queries` | `5000` | Queries with the status `done`. Texts start with `seed query`. |
-| `seed_tweets_per_query` | `50` | Rows in `query_tweets` for each query. |
-| `seed_batches_per_query` | `2` | Rows in `query_batches` for each query. |
-| `seed_model_version` | `clef-flash-hosted` | The model version of each seed prediction. |
-| `seed_metadata_version` | `v1` | The metadata version of each seed prediction. |
-| `seed_question_version` | `v1` | The question version of each seed prediction. |
+| `preload_accounts` | `20000` | Accounts. IDs start with `preload-account-`. |
+| `preload_tweets` | `100000` | Tweets and predictions. IDs start with `preload-tweet-`. |
+| `preload_queries` | `5000` | Queries with the status `done`. Texts start with `preload query`. |
+| `preload_tweets_per_query` | `50` | Rows in `query_tweets` for each query. |
+| `preload_batches_per_query` | `2` | Rows in `query_batches` for each query. |
+| `preload_model_version` | `clef-flash-hosted` | The model version of each preload prediction. |
+| `preload_metadata_version` | `v1` | The metadata version of each preload prediction. |
+| `preload_question_version` | `v1` | The question version of each preload prediction. |
 
-Set a variable with `-v seed_tweets=500000`. The synthetic scraper's IDs never start with `seed-`, so the seed rows never collide with them.
+Set a variable with `-v preload_tweets=500000`. The synthetic scraper's IDs never start with `preload-`, so the preload rows never collide with them.
 
 ## Check for lost queries
 

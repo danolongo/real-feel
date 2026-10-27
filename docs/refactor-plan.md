@@ -33,7 +33,7 @@ You build this system to learn. You also build it to run at serious load. Two ou
 ## Target architecture
 
 ```text
-                 (M5: ALB, M6: Auto Scaling Group)
+                 (M5: ALB, M6: Auto Scaling group)
 User ──HTTP──▶ API (Rust, axum, EC2) ──────────▶ Postgres + pgvector (RDS)
                   │                                   ▲
                   │ scraper job                       │ tweets, accounts,
@@ -120,7 +120,7 @@ Each row becomes a decision record in M0. "Agreed" rows come from the design dis
 | D7 | The API and workers run on EC2. | Fixed capacity makes load tests measure Real Feel's code, not Lambda's scaling. | Agreed |
 | D8 | Postgres holds query status. DynamoDB goes away. | One database is simpler than two. Postgres handles the load. | Agreed |
 | D9 | One Postgres instance, with connection pooling in M6. Sharding waits for M9. | A million tweets with their accounts and predictions fits in a few GB. Load tests must prove a need before you shard. | Agreed |
-| D10 | No load balancer until M5. M5 adds an ALB, and M6 adds an Auto Scaling Group. | One API instance needs no load balancer. Scaling experiments need one. | Agreed |
+| D10 | No load balancer until M5. M5 adds an ALB, and M6 adds an Auto Scaling group. | One API instance needs no load balancer. Scaling experiments need one. | Agreed |
 | D11 | You run Clef-flash on your own GPU instance (M7). | Learning goal. You own the model operations end to end. | Agreed |
 | D12 | Datadog for observability. The code emits OpenTelemetry. | The Datadog student plan is free for 2 years and covers 10 hosts. OpenTelemetry keeps the code vendor-neutral. | Agreed |
 | D13 | Two queues: `scraper-jobs` and `classifier-jobs`. | Scraping and classifying have different speeds and costs. Two queues let each worker role autoscale on its own queue. | Proposed |
@@ -292,7 +292,7 @@ You write docs as you build. Docs ship in the same PR as the code.
 | M3 | First AWS deployment | The same flow runs on AWS, with Datadog |
 | M4 | Eval set and metadata versions | Evidence on which metadata version classifies best |
 | M5 | Public API | API keys, query quotas, WAF rate limits, HTTPS through an ALB |
-| M6 | Load tests, profiling, and performance | Measured break points, profiles, fixes, Auto Scaling Groups, SLOs |
+| M6 | Load tests, profiling, and performance | Measured break points, profiles, fixes, Auto Scaling groups, SLOs |
 | M7 | Self-hosted backend: reference server | Clef-flash runs on your own GPU. Quantization cost measured. |
 | M8 | Self-hosted backend: candle server | Rust inference server checked for parity and benchmarked |
 | M9 | Later experiments | Sharding, semantic search, time-series analysis, query decomposition |
@@ -675,7 +675,7 @@ Tasks 6.1 to 6.8 are code. You finish them before the first load test runs on AW
   - A worker logs a broken message and leaves it. SQS moves it to the DLQ after `maxReceiveCount` receives.
   - The DLQ reader logs a broken message and deletes it. Today the DLQ reader hits the same parse error on every pass, so the broken message never leaves the DLQ.
 - [ ] **6.3** `crates/api`, `crates/worker`: `DB_MAX_CONNECTIONS` sets the size of each sqlx pool. The default stays 10.
-- [ ] **6.4** `infra/terraform`: You split the compute into three Auto Scaling Groups: `api`, `scraper`, and `classifier`.
+- [ ] **6.4** `infra/terraform`: You split the compute into three Auto Scaling groups: `api`, `scraper`, and `classifier`.
   - Each group uses a launch template. A root variable sets each group's instance type, minimum size, and maximum size. The defaults keep production at one `t4g.small` instance in each group.
   - The role file and the `role` tag hold `api`, `scraper`, or `classifier`. The restart script starts only that role's container on an instance.
   - The API group registers its instances with the ALB target group through `target_group_arns`. `aws_lb_target_group_attachment` and `api_instance_id` go away. The API group uses the ALB health check, with a grace period that covers the first boot.
@@ -707,7 +707,7 @@ Tasks 6.1 to 6.8 are code. You finish them before the first load test runs on AW
   - `QUERY_QUOTA_ENABLED=false` and `waf_rate_limit_enabled=false` hold during the tests, as M5 planned. One API key covers the whole run.
   - k6 runs on your laptop. When k6 drops iterations or its CPU passes 80%, the laptop limits the test. You then run k6 on a `c7g` instance in `us-east-1`. The report names the host.
 - [ ] **6.8** `loadtest/`: You write the tools around the scenarios.
-  - `seed.sql` fills Postgres with a fixed count of queries, tweets, accounts, and predictions. You run it before the first `ramp` of each session. The stack starts empty after each destroy, and `EXPLAIN ANALYZE` on near-empty tables shows nothing.
+  - `preload.sql` fills Postgres with the preload: a fixed count of queries, tweets, accounts, and predictions. You run it before the first `ramp` of each session. The stack starts empty after each destroy, and `EXPLAIN ANALYZE` on near-empty tables shows nothing.
   - `check-queries.sh` reads k6's query ID file. It counts the status of each query in Postgres. A query that is not `done` or `failed` counts as lost.
   - The README shows how you reach RDS with `psql` through SSM port forwarding from an API instance. RDS stays private.
   - The README shows how you record a flame graph: you deploy the `profiling` images, run `perf record -g` on the host against the container's process, and fold the output with `inferno`.
@@ -721,7 +721,7 @@ Tasks 6.1 to 6.8 are code. You finish them before the first load test runs on AW
   - The report lists the hot paths in order of cost.
 - [ ] **6.11** You fix the hot paths that the profiles show. Candidates: missing indexes, the pool size, `BATCH_SIZE`, and SQS batch sends and receives.
   - Each fix is one commit on a `perf/m6-<name>` branch. You deploy the branch, re-run `ramp`, and record the before and after numbers for that commit.
-  - You run each before-and-after pair in the same session, on the same seed.
+  - You run each before-and-after pair in the same session, on the same preload.
 - [ ] **6.12** You turn on autoscaling: you raise the maximum sizes and run `ramp` in system-only mode. Autoscaling gates run only in system-only mode.
 - [ ] **6.13** You choose the connection pooling: PgBouncer or RDS Proxy. You add a read replica only if the load tests show reads limit throughput.
   - sqlx uses named prepared statements. PgBouncer in transaction mode supports them from version 1.21, with `max_prepared_statements` set. RDS Proxy pins every session that uses them, which removes most of its gain. RDS Proxy also bills at least 2 vCPUs.
@@ -758,7 +758,7 @@ After each change in 6.11 to 6.13, you re-run `ramp`. You run every scenario onl
 - [ ] **7.2** `crates/types`: You define the inference server contract: `POST /v1/classify` takes a batch and returns predictions with a model version. The types generate JSON Schema.
 - [ ] **7.3** `inference/reference`: You build the reference server in Python with `uv`. It generates its request and response models from the JSON Schema. It applies dynamic batching with a maximum batch size and a maximum wait.
 - [ ] **7.4** `inference/reference`: You load Clef-flash in the `bf16`, `int8`, and `int4` variants. The variant is a setting.
-- [ ] **7.5** `infra/terraform`: You add a GPU module. It holds a launch template with an NVIDIA Deep Learning AMI, Spot instances, and an Auto Scaling Group of size 0 or 1. A script on the instance shuts the instance down after a set idle time.
+- [ ] **7.5** `infra/terraform`: You add a GPU module. It holds a launch template with an NVIDIA Deep Learning AMI, Spot instances, and an Auto Scaling group of size 0 or 1. A script on the instance shuts the instance down after a set idle time.
 - [ ] **7.6** `crates/classifier`: You write the self-hosted implementation. `CLASSIFIER_BACKEND` selects `hosted`, `self_hosted`, or `fake`.
 - [ ] **7.7** You run the same experiments on each variant and on the hosted backend. You settle O6. The eval report shows:
   - agreement rate on bot or human against the hosted backend
@@ -767,7 +767,7 @@ After each change in 6.11 to 6.13, you re-run `ramp`. You run every scenario onl
 - [ ] **7.8** You build the benchmark harness. It sends a fixed set of model inputs at batch sizes 1, 8, 32, and 64. It records throughput, p50, p95, and p99 latency, and GPU memory.
 - [ ] **7.9** You enable Datadog GPU monitoring: GPU use, GPU memory, batch size, inference latency.
 - [ ] **7.10** You add the `python` and `contract` jobs to `ci.yml`. You add `gpu.yml` for benchmarks.
-- [ ] **7.11** You scale the GPU Auto Scaling Group on the `classifier-jobs` backlog, with a minimum of 0.
+- [ ] **7.11** You scale the GPU Auto Scaling group on the `classifier-jobs` backlog, with a minimum of 0.
 - [ ] **7.12** You run a failure drill during a `soak` test: let AWS reclaim a Spot GPU instance.
 
 **Docs:** `inference/reference/README.md`, `docs/reports/quantization-m6.md`, `docs/reports/benchmark-reference.md`, decision records for O5 and O6.
@@ -826,7 +826,7 @@ You plan each of these when M8 closes. Each becomes its own spike and decision r
 | Clef-flash's schema head needs custom code | M7 takes longer | Task 7.1 answers this before you build anything. |
 | `candle` lacks Clef-flash's base architecture | M8 grows large | Task 8.1 can stop M8 with a decision record. |
 | AWS approves GPU quota slowly | M7 waits | Task 5.6 asks during M5, so approval lands before M7. |
-| GPU costs run high | Budget overrun | Spot instances, idle shutdown, an Auto Scaling Group minimum of 0, a budget alert. |
+| GPU costs run high | Budget overrun | Spot instances, idle shutdown, an Auto Scaling group minimum of 0, a budget alert. |
 | Paid service costs run high in tests | Budget overrun | CI uses fakes. Only `nightly.yml` and manual runs call paid services. The `eval` binary prints the cost first. |
 | The label agent writes wrong labels | Every accuracy number in M4 is off | You review the first batch and a random 10%. The eval report gives your agreement rate. Cresci-2017 is public. |
 | Cloudflare changes the hosted backend | Hosted experiments drift | `nightly.yml` catches contract changes. Every prediction stores its model version. |

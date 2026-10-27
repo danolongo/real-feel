@@ -95,6 +95,13 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | error code | noun | The `code` field of an API error response, such as `invalid_query`. | error type, error name |
 | API key | noun | A long random string that a client sends in the `Authorization` header to call the API. Postgres stores only its SHA-256 hash. | token, password |
 | query quota | noun | The number of new queries that one API key may create in one hour. | query limit |
+| synthetic scraper | noun | The fake of the scraper that makes `SYNTHETIC_TWEETS` tweets for each query from a hash of the query text. A repeated query text gives the same tweets. `SCRAPER=synthetic` picks it. | mock scraper, dummy scraper |
+| Auto Scaling group | noun | An AWS group of EC2 instances that run one container kind: `real-feel-api`, `real-feel-scraper`, or `real-feel-classifier`. Its scaling policies add and remove instances. | ASG pool, fleet, cluster |
+| launch template | noun | The AWS template that an Auto Scaling group starts each instance from: the AMI, the instance type, and the user data. | instance config |
+| instance refresh | noun | The rolling replacement that an Auto Scaling group runs after its launch template changes. A new instance starts before an old one stops. | rolling deploy |
+| backlog | noun | The count of visible jobs in a queue. Each worker Auto Scaling group scales on its backlog for each instance. | queue length, lag |
+| image tag | noun | The tag of the API image and the worker image in ECR: the commit SHA, plus `-profiling` for a profiling image. The SSM parameter `/real-feel/deploy/IMAGE_TAG` holds the image tag of the last deploy. | version, release |
+| profiling image | noun | An API image or worker image that Cargo builds with the `profiling` profile: release code with line tables and frame pointers. | debug build |
 
 ## Models
 
@@ -127,7 +134,17 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | calibration | noun | How closely bot probability matches reality. A calibrated 0.8 is right 80% of the time. | confidence accuracy |
 | benchmark | noun | A fixed measurement of inference server speed: throughput and latency at set batch sizes. Never a verb. | perf test |
 | load test | noun | A k6 script that sends HTTP requests to the API at a set rate. | stress test, perf test |
-| break point | noun | The request rate at which a load test first fails its targets. | limit, ceiling |
+| break point | noun | The request rate at which a load test first crosses a threshold: `POST /queries` p99 above 500 ms, an error rate above 1%, or a query unfinished after 300 s. | limit, ceiling |
+| scenario | noun | One k6 script of a load test: `smoke`, `ramp`, `burst`, or `soak`. | test case |
+| system-only mode | noun | A load test with the synthetic scraper and the fake. It measures Real Feel's own code. | dry run |
+| full mode | noun | A load test with twitterapi.io and the hosted backend. It spends real money. | live mode |
+| virtual user | noun | A k6 runner that runs one iteration at a time. Each in-flight query holds one virtual user. Short form: VU. | thread, client |
+| preload | noun | The fixed rows that `loadtest/preload.sql` writes into Postgres before a load test. Never a verb. | seed, fixture data |
+| query ID file | noun | The file where k6 writes one line for each query it sent, with the final query status. | log file |
+| lost query | noun | A query in the query ID file whose query status is neither `done` nor `failed` after the queues drain. | dropped query |
+| flame graph | noun | An SVG of CPU samples that shows which functions use the most CPU time. | profile chart |
+| SLO | noun | A Datadog service level objective: a target share of good requests, or of good time, over 7 days. | SLA |
+| monitor | noun | A Datadog alert rule from `infra/datadog/monitors.json`. Never a verb. | alert rule |
 | contract test | noun | A test that sends one fixed model input to an inference backend and checks the shape of the answer. It spends real money, so it never runs in `ci.yml`. | smoke test, integration test |
 | nightly workflow | noun | The GitHub Actions workflow `nightly.yml`. It runs the contract test once a day. | cron job |
 | milestone | noun | A numbered stage of the refactor plan (M0–M9). | phase, sprint |
