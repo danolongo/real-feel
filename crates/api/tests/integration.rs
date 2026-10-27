@@ -223,6 +223,10 @@ async fn post_then_get_shows_queued_and_sends_a_traced_scraper_job(pool: PgPool)
     let (status, body) = call(&app, get(&format!("/queries/{query_id}"))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], "queued");
+    assert_eq!(
+        body["progress"],
+        json!({"batches_done": 0, "batch_count": null})
+    );
     assert_eq!(body["result"], Value::Null);
     let query = db::fetch_query(&pool, query_id).await.unwrap().unwrap();
     assert_eq!(query.text, "what do people say?");
@@ -323,6 +327,70 @@ async fn is_bot_is_true_at_the_threshold_and_null_without_a_prediction(pool: PgP
     assert_eq!(tweets[1]["is_bot"], false);
     assert_eq!(tweets[2]["p_bot"], Value::Null);
     assert_eq!(tweets[2]["is_bot"], Value::Null);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn progress_counts_the_finished_batches(pool: PgPool) {
+    let query = db::insert_query(&pool, "q").await.unwrap();
+    assert!(
+        db::set_status(&pool, query.id, QueryStatus::Scraping, None)
+            .await
+            .unwrap()
+    );
+    assert!(db::set_batch_count(&pool, query.id, 3).await.unwrap());
+    for batch in [0, 1] {
+        db::upsert_query_batch(&pool, query.id, batch)
+            .await
+            .unwrap();
+    }
+    let app = app(pool, "http://localhost:4566/000000000000/unused").await;
+
+    let (_, body) = call(&app, get(&format!("/queries/{}", query.id))).await;
+    assert_eq!(body["status"], "classifying");
+    assert_eq!(
+        body["progress"],
+        json!({"batches_done": 2, "batch_count": 3})
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn done_query_shows_the_counts_the_account_and_p_llm_text(pool: PgPool) {
+    let id = seed_done_query(&pool, 1).await;
+    sqlx::query(
+        r#"UPDATE tweets SET raw = '{"likeCount": 3, "retweetCount": 0, "replyCount": 1, "viewCount": 120}'"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE accounts SET raw = '{"name": "Alice"}', followers = 210, tweet_count = 5400"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    seed_prediction(&pool, "0000", "m1", 0.2).await;
+    sqlx::query("UPDATE predictions SET p_llm_text = 0.75")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let app = app(pool, "http://localhost:4566/000000000000/unused").await;
+
+    let (_, body) = call(&app, get(&format!("/queries/{id}"))).await;
+    let tweet = &body["result"]["tweets"][0];
+    assert_eq!(tweet["p_llm_text"], 0.75);
+    assert_eq!(
+        (
+            &tweet["like_count"],
+            &tweet["retweet_count"],
+            &tweet["reply_count"],
+            &tweet["view_count"]
+        ),
+        (&json!(3), &json!(0), &json!(1), &json!(120))
+    );
+    assert_eq!(tweet["account"]["name"], "Alice");
+    assert_eq!(tweet["account"]["followers"], 210);
+    assert_eq!(tweet["account"]["tweet_count"], 5400);
+    assert_eq!(tweet["account"]["following"], Value::Null);
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

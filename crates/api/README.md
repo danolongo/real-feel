@@ -18,7 +18,9 @@ See [glossary.md](../../docs/glossary.md): API, query, query status, query reuse
 4. `GET /queries/{id}` returns the query status. When the status is `done`, it also returns one page of the result.
 5. The page holds one prediction for each tweet. The API selects it with `DEFAULT_MODEL_VERSION`, `DEFAULT_METADATA_VERSION`, and `DEFAULT_QUESTION_VERSION`. A tweet without a matching prediction has `"p_bot": null`.
 6. Each tweet also carries `is_bot`. It is `true` when `p_bot` is at or above `BOT_THRESHOLD`, and `false` below it. It is `null` when `p_bot` is `null`.
-7. Every error is JSON: `{ "code": …, "message": … }`.
+7. Every status carries `progress`. `batches_done` counts the batches the classifier has finished. `batch_count` is `null` until the scraper sets it.
+8. Each tweet carries `like_count`, `retweet_count`, `reply_count`, `view_count`, and `p_llm_text`. Each account carries `name`, `joined_at`, `followers`, `following`, `tweet_count`, `is_verified`, and `is_automated`. The counts and `name` come from the twitterapi.io JSON in `raw`. Any of these fields can be `null`.
+9. Every error is JSON: `{ "code": …, "message": … }`.
 
 ### `POST /queries`
 
@@ -69,6 +71,7 @@ Content-Type: application/json
   "query_id": "7b0e5c3e-52b4-4a58-8f0c-9d5a1f2a6c11",
   "status": "queued",
   "error": null,
+  "progress": { "batches_done": 0, "batch_count": null },
   "result": null
 }
 ```
@@ -88,22 +91,35 @@ Content-Type: application/json
   "query_id": "7b0e5c3e-52b4-4a58-8f0c-9d5a1f2a6c11",
   "status": "done",
   "error": null,
+  "progress": { "batches_done": 1, "batch_count": 1 },
   "result": {
     "tweets": [
       {
         "tweet_id": "1801",
         "text": "The new phone is fine.",
         "posted_at": "2026-10-01T09:30:00Z",
-        "account": { "id": "42", "handle": "alice" },
+        "like_count": 3, "retweet_count": 0, "reply_count": 1, "view_count": 120,
+        "account": {
+          "id": "42", "handle": "alice", "name": "Alice",
+          "joined_at": "2019-04-01T00:00:00Z", "followers": 210, "following": 180,
+          "tweet_count": 5400, "is_verified": false, "is_automated": false
+        },
         "p_bot": 0.04,
+        "p_llm_text": 0.21,
         "is_bot": false
       },
       {
         "tweet_id": "1802",
         "text": "BUY NOW best phone deal",
         "posted_at": null,
-        "account": { "id": "77", "handle": "deals_bot_9" },
+        "like_count": 0, "retweet_count": 0, "reply_count": 0, "view_count": 4,
+        "account": {
+          "id": "77", "handle": "deals_bot_9", "name": null,
+          "joined_at": null, "followers": 3, "following": 4100,
+          "tweet_count": 90000, "is_verified": false, "is_automated": null
+        },
         "p_bot": 0.97,
+        "p_llm_text": 0.08,
         "is_bot": true
       }
     ],

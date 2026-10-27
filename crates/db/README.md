@@ -28,12 +28,13 @@ See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, 
 6. `set_status` runs one conditional `UPDATE`. It returns `true` when Postgres applied the change and `false` when the current status forbids it. For `failed`, the caller passes the error message.
 7. Each upsert writes with `ON CONFLICT … DO UPDATE … WHERE (columns) IS DISTINCT FROM (excluded columns)`. It returns the number of changed rows. A second call with the same input returns `0`, and `updated_at` stays the same. `upsert_query_tweet` and `upsert_query_batch` use `DO NOTHING`, because no column can change.
 8. `accounts` holds the typed columns `joined_at`, `followers`, `following`, `tweet_count`, `is_verified`, and `is_automated`. All six are nullable. `upsert_account` writes them, and its `IS DISTINCT FROM` check compares them. `result_page` and `tweets_with_accounts` read them.
-9. `result_page` returns the tweets of one query, sorted by tweet ID. Each tweet carries its account and the prediction that matches the requested model version, metadata version, and question version. A tweet without a matching prediction carries none. The caller passes the last tweet ID of the previous page as `after`.
-10. `set_batch_count` records the batch count and sets the query status to `classifying` in one `UPDATE`. Postgres applies it only while the status is `scraping` and the batch count is null or equal to the new count. It returns whether Postgres applied it.
-11. `query_tweet_ids` returns the tweet IDs of one query, sorted by tweet ID. `tweets_with_accounts` returns the tweets and accounts for a list of tweet IDs.
-12. `query_batch_exists` returns whether a `query_batches` row exists for one query and batch number. The classifier worker uses it to skip a repeated classifier job.
-13. `tweet_ids_without_prediction` returns the tweet IDs, in the order given, that have no prediction for the given model version, metadata version, and question version.
-14. `finish_batch` runs one transaction:
+9. `batches_done` counts the `query_batches` rows of one query. The API reports it as progress.
+10. `result_page` returns the tweets of one query, sorted by tweet ID. Each tweet carries its account and the prediction that matches the requested model version, metadata version, and question version. A tweet without a matching prediction carries none. The caller passes the last tweet ID of the previous page as `after`.
+11. `set_batch_count` records the batch count and sets the query status to `classifying` in one `UPDATE`. Postgres applies it only while the status is `scraping` and the batch count is null or equal to the new count. It returns whether Postgres applied it.
+12. `query_tweet_ids` returns the tweet IDs of one query, sorted by tweet ID. `tweets_with_accounts` returns the tweets and accounts for a list of tweet IDs.
+13. `query_batch_exists` returns whether a `query_batches` row exists for one query and batch number. The classifier worker uses it to skip a repeated classifier job.
+14. `tweet_ids_without_prediction` returns the tweet IDs, in the order given, that have no prediction for the given model version, metadata version, and question version.
+15. `finish_batch` runs one transaction:
     1. It locks the query row with `SELECT … FOR UPDATE`.
     2. It upserts the predictions with `upsert_prediction`.
     3. It upserts the `query_batches` row.
@@ -41,10 +42,10 @@ See [glossary.md](../../docs/glossary.md): query, query status, tweet, account, 
     5. When the batch count is not null and equals the count, it sets the query status to `done`.
 
     It returns whether it set `done`. The lock makes two workers that finish the last two batches at once count one after the other. A repeated call changes no row.
-15. `ping` runs `SELECT 1`. The API uses it for the readiness check.
-16. `insert_experiment` inserts one `experiments` row with a new ID and returns it. The row holds the three versions, the eval set checksum, the seed, and the repeat count. `fetch_experiment` returns one experiment by ID. `list_experiments` returns all experiments, oldest first.
-17. `insert_experiment_results` inserts many `experiment_results` rows for one experiment in one `INSERT … SELECT FROM UNNEST` statement. A row holds the label, the split, the bot probability, and the LLM text fields of one eval set account and one repeat. `experiment_results` returns the rows of one experiment, sorted by account ID and repeat.
-18. The two experiment tables have no foreign key to `tweets`, `accounts`, or `predictions`. An experiment never changes a production row. Postgres checks that the label is `human`, `bot`, or `agent` and that the split is `tune` or `test`.
+16. `ping` runs `SELECT 1`. The API uses it for the readiness check.
+17. `insert_experiment` inserts one `experiments` row with a new ID and returns it. The row holds the three versions, the eval set checksum, the seed, and the repeat count. `fetch_experiment` returns one experiment by ID. `list_experiments` returns all experiments, oldest first.
+18. `insert_experiment_results` inserts many `experiment_results` rows for one experiment in one `INSERT … SELECT FROM UNNEST` statement. A row holds the label, the split, the bot probability, and the LLM text fields of one eval set account and one repeat. `experiment_results` returns the rows of one experiment, sorted by account ID and repeat.
+19. The two experiment tables have no foreign key to `tweets`, `accounts`, or `predictions`. An experiment never changes a production row. Postgres checks that the label is `human`, `bot`, or `agent` and that the split is `tune` or `test`.
 
 ### Status changes
 

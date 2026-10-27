@@ -16,6 +16,7 @@ db = { path = "../db" }
 getrandom = "0.3"
 queue = { path = "../queue" }
 serde.workspace = true
+serde_json.workspace = true
 sha2 = "0.10"
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls"] }
 telemetry = { path = "../telemetry" }
@@ -30,7 +31,6 @@ aws-config = "1"
 aws-sdk-sqs = "1"
 opentelemetry = "0.33"
 opentelemetry_sdk = "0.33"
-serde_json.workspace = true
 sqlx = { workspace = true, features = ["macros", "migrate"] }
 tower = { version = "0.5", features = ["util"] }
 tracing-opentelemetry = "0.34"

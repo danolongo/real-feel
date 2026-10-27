@@ -17,6 +17,7 @@ use chrono::{DateTime, Utc};
 use db::{ApiKey, CreatedQuery, PgPool, ResultTweet, Versions};
 use queue::Queue;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use types::{QueryStatus, ScraperJob};
 use uuid::Uuid;
 
@@ -128,7 +129,14 @@ struct QueryResponse {
     query_id: Uuid,
     status: QueryStatus,
     error: Option<String>,
+    progress: Progress,
     result: Option<ResultPage>,
+}
+
+#[derive(Serialize)]
+struct Progress {
+    batches_done: i64,
+    batch_count: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -142,8 +150,13 @@ struct TweetView {
     tweet_id: String,
     text: String,
     posted_at: Option<DateTime<Utc>>,
+    like_count: Option<i64>,
+    retweet_count: Option<i64>,
+    reply_count: Option<i64>,
+    view_count: Option<i64>,
     account: AccountView,
     p_bot: Option<f64>,
+    p_llm_text: Option<f64>,
     is_bot: Option<bool>,
 }
 
@@ -151,20 +164,46 @@ struct TweetView {
 struct AccountView {
     id: String,
     handle: String,
+    name: Option<String>,
+    joined_at: Option<DateTime<Utc>>,
+    followers: Option<i32>,
+    following: Option<i32>,
+    tweet_count: Option<i32>,
+    is_verified: Option<bool>,
+    is_automated: Option<bool>,
 }
 
 impl TweetView {
     fn new(row: ResultTweet, bot_threshold: f64) -> Self {
-        let p_bot = row.prediction.map(|prediction| prediction.p_bot);
+        let p_bot = row.prediction.as_ref().map(|prediction| prediction.p_bot);
+        let count = |key: &str| row.tweet.raw.get(key).and_then(Value::as_i64);
         Self {
+            like_count: count("likeCount"),
+            retweet_count: count("retweetCount"),
+            reply_count: count("replyCount"),
+            view_count: count("viewCount"),
             tweet_id: row.tweet.id,
             text: row.tweet.text,
             posted_at: row.tweet.posted_at,
             account: AccountView {
+                name: row
+                    .account
+                    .raw
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string),
                 id: row.account.id,
                 handle: row.account.handle,
+                joined_at: row.account.joined_at,
+                followers: row.account.followers,
+                following: row.account.following,
+                tweet_count: row.account.tweet_count,
+                is_verified: row.account.is_verified,
+                is_automated: row.account.is_automated,
             },
             p_bot,
+            p_llm_text: row.prediction.and_then(|prediction| prediction.p_llm_text),
             is_bot: p_bot.map(|p_bot| p_bot >= bot_threshold),
         }
     }
@@ -214,6 +253,10 @@ async fn get_query(
         query_id: query.id,
         status: query.status,
         error: query.error,
+        progress: Progress {
+            batches_done: db::batches_done(&state.db, id).await?,
+            batch_count: query.batch_count,
+        },
         result,
     }))
 }
@@ -247,7 +290,7 @@ mod tests {
         body::{Body, to_bytes},
         http::Request,
     };
-    use serde_json::{Value, json};
+    use serde_json::json;
     use sqlx::postgres::PgPoolOptions;
     use tower::ServiceExt;
     use types::{MetadataVersion, ModelVersion, QuestionVersion};
@@ -301,6 +344,35 @@ mod tests {
                 raw: json!({}),
             }),
         }
+    }
+
+    #[test]
+    fn tweet_view_reads_counts_and_name_from_raw() {
+        let mut row = result_tweet(Some(0.2));
+        row.tweet.raw =
+            json!({"likeCount": 3, "retweetCount": 0, "replyCount": 1, "viewCount": 120});
+        row.account.raw = json!({"name": "Alice"});
+        let view = TweetView::new(row, 0.5);
+        assert_eq!(
+            (
+                view.like_count,
+                view.retweet_count,
+                view.reply_count,
+                view.view_count
+            ),
+            (Some(3), Some(0), Some(1), Some(120))
+        );
+        assert_eq!(view.account.name.as_deref(), Some("Alice"));
+    }
+
+    #[test]
+    fn tweet_view_leaves_missing_raw_fields_null() {
+        let mut row = result_tweet(None);
+        row.account.raw = json!({"name": ""});
+        let view = TweetView::new(row, 0.5);
+        assert_eq!(view.like_count, None);
+        assert_eq!(view.account.name, None);
+        assert_eq!(view.p_llm_text, None);
     }
 
     #[test]

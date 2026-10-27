@@ -212,6 +212,16 @@ pub async fn fetch_query<'e>(db: impl PgExecutor<'e>, id: Uuid) -> Result<Option
     .await
 }
 
+/// Returns how many batches of the query the classifier has finished.
+pub async fn batches_done<'e>(db: impl PgExecutor<'e>, query_id: Uuid) -> Result<i64, Error> {
+    sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "count!" FROM query_batches WHERE query_id = $1"#,
+        query_id
+    )
+    .fetch_one(db)
+    .await
+}
+
 /// Returns whether Postgres applied the change. `error` is stored as given.
 pub async fn set_status<'e>(
     db: impl PgExecutor<'e>,
