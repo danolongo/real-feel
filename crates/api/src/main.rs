@@ -15,6 +15,7 @@ struct Config {
     bot_threshold: f64,
     query_reuse: Duration,
     quota_enabled: bool,
+    db_max_connections: u32,
 }
 
 impl Config {
@@ -30,6 +31,12 @@ impl Config {
                     .map_err(|_| format!("QUERY_REUSE_SECS is not a number: {secs}"))?,
                 Err(_) => 3600,
             }),
+            db_max_connections: match std::env::var("DB_MAX_CONNECTIONS") {
+                Ok(count) => count
+                    .parse()
+                    .map_err(|_| format!("DB_MAX_CONNECTIONS is not a number: {count}"))?,
+                Err(_) => 10,
+            },
             quota_enabled: parse_quota_enabled(
                 std::env::var("QUERY_QUOTA_ENABLED").ok().as_deref(),
             )?,
@@ -64,6 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
 
     let db = PgPoolOptions::new()
+        .max_connections(config.db_max_connections)
         .acquire_timeout(Duration::from_secs(5))
         .connect(&config.database_url)
         .await?;

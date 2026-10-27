@@ -19,7 +19,7 @@ See [glossary.md](../../docs/glossary.md): classifier, model input, prediction, 
 5. Any other `4xx` returns `Error::Status` at once.
 6. `Hosted` returns one prediction for each model input, in the same order. Each prediction copies the tweet ID and versions from its model input. `raw` holds Cloudflare's `result` object.
 
-`Fake::new(p_bot, failures)` returns `p_bot` for every model input. `Fake::by_tweet_id(failures)` returns a bot probability from 0 up to, but not including, 1 for each tweet ID. It hashes the tweet ID with FNV-1a, so one tweet ID always gives the same bot probability on every platform and Rust version. Different tweet IDs give different bot probabilities, so metrics on a fixture produce no ties. Both fakes fail their first `failures` calls with `Error::Fake`. Both leave `p_llm_text` empty.
+`Fake::new(p_bot, failures)` returns `p_bot` for every model input. `Fake::by_tweet_id(failures)` returns a bot probability from 0 up to, but not including, 1 for each tweet ID. It hashes the tweet ID with FNV-1a, so one tweet ID always gives the same bot probability on every platform and Rust version. Different tweet IDs give different bot probabilities, so metrics on a fixture produce no ties. Both fakes fail their first `failures` calls with `Error::Fake`. Both leave `p_llm_text` empty. `with_latency(duration)` makes each `classify` call pause for `duration` before it returns or fails.
 
 ### Hosted backend format
 
@@ -68,6 +68,7 @@ Clef-flash rejects the Workers AI batch API with error 8007: "This model does no
 | `CLOUDFLARE_ACCOUNT_ID` | none | The Cloudflare account that owns the Workers AI usage. |
 | `CLOUDFLARE_API_TOKEN` | none | A token with Workers AI access. |
 | `CLASSIFIER_RPS` | `5` | The most requests each second, across all concurrent calls. |
+| `FAKE_LATENCY_MS` | `0` | Pause in each `Fake::classify` call, in milliseconds. The worker reads it and calls `Fake::with_latency`. |
 
 `Hosted::new(base_url, account_id, api_token, rps)` takes the values directly. Tests pass a wiremock URL.
 

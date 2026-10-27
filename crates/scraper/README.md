@@ -4,7 +4,7 @@
 
 ## Where it sits
 
-The scraper worker calls `Scraper::scrape` for each scraper job. `scraper` calls [twitterapi.io](../../docs/glossary.md) over HTTP, or reads a fixture file. `scraper` depends on `types`.
+The scraper worker calls `Scraper::scrape` for each scraper job. `scraper` calls [twitterapi.io](../../docs/glossary.md) over HTTP, reads a fixture file, or makes synthetic tweets. `scraper` depends on `types`.
 
 ## Terms
 
@@ -22,6 +22,9 @@ See [glossary.md](../../docs/glossary.md): scraper, query, tweet, recent tweets,
 5. Every tweet in a search result carries its author, so `TwitterApi` makes no profile call.
 6. `TwitterApi` builds one `Account` for each distinct author ID and one `Tweet` for each distinct tweet ID. It keeps the first one it sees. `raw` holds the full tweet object or the full author object.
 7. The fixture implementation (`Fixture::load(path)`) reads a `Scraped` from a JSON file once. It returns that content for any query.
+8. `Synthetic::new(tweets, latency)` makes `tweets` tweets for any query without a network call. It pauses `latency`, then returns. Each group of 5 tweets shares one account, so 50 tweets come with 10 accounts.
+9. `Synthetic` derives every tweet ID and account ID from a SHA-256 hash of the lower-cased query text, a kind (`tweet` or `account`), and the index. The same text gives the same rows. A new text gives new rows.
+10. `Synthetic` fills the `Account` fields and the `raw` keys that the metadata builder and the API read: `favouritesCount`, `mediaCount`, `name`, `location`, `profile_bio`, and the tweet counts. Dates and counts come from the hash, so they never change for one text.
 
 ### Recent tweets
 
@@ -70,13 +73,15 @@ Search results use the format `Sun Oct 25 09:56:57 +0000 2026`. `TwitterApi` par
 
 ## Configuration
 
-The scraper reads no environment variable. The worker reads these and passes them to `TwitterApi::new`.
+The scraper reads no environment variable. The worker reads these and passes them to `TwitterApi::new` and `Synthetic::new`.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `TWITTERAPI_KEY` | none | The twitterapi.io key. |
 | `TWITTERAPI_PAGES` | `5` | The most search pages for each query, 20 tweets each. |
 | `TWITTERAPI_INTERVAL_SECS` | `5` | The time from the start of one request to the start of the next. |
+| `SYNTHETIC_TWEETS` | `50` | Tweets that `Synthetic` makes for each query. |
+| `SYNTHETIC_LATENCY_MS` | `0` | Pause in each `Synthetic` scrape, in milliseconds. |
 
 `crates/scraper/fixtures/default.json` holds 5 tweets from 3 accounts. The IDs, handles, and account fields are made up.
 
@@ -86,7 +91,7 @@ The scraper reads no environment variable. The worker reads these and passes the
 
 ## Test it
 
-Run from the repository root. No test needs Docker or network access. `wiremock` plays twitterapi.io.
+Run from the repository root. No test needs Docker or network access. `wiremock` plays twitterapi.io. The `Synthetic` tests pause the Tokio clock.
 
 ```bash
 cargo test -p scraper

@@ -15,6 +15,12 @@ fn var_or(name: &str, default: &str) -> String {
     env::var(name).unwrap_or_else(|_| default.to_string())
 }
 
+fn number_or<T: std::str::FromStr>(name: &str, default: &str) -> Result<T, String> {
+    var_or(name, default)
+        .parse()
+        .map_err(|_| format!("{name} is not a number"))
+}
+
 fn number<T: std::str::FromStr>(name: &str) -> Result<T, String> {
     var(name)?
         .parse()
@@ -24,6 +30,7 @@ fn number<T: std::str::FromStr>(name: &str) -> Result<T, String> {
 async fn context(jobs: &str, dlq: &str) -> Result<Context, Box<dyn std::error::Error>> {
     Ok(Context {
         db: PgPoolOptions::new()
+            .max_connections(number_or("DB_MAX_CONNECTIONS", "10")?)
             .acquire_timeout(Duration::from_secs(5))
             .connect(&var("DATABASE_URL")?)
             .await?,
@@ -93,11 +100,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let path = var_or("FIXTURE_PATH", "crates/scraper/fixtures/default.json");
                 run_scraper(scraper::Fixture::load(path)?).await
             }
-            other => Err(format!("SCRAPER must be twitterapi or fixture, not {other}").into()),
+            "synthetic" => {
+                run_scraper(scraper::Synthetic::new(
+                    number_or("SYNTHETIC_TWEETS", "50")?,
+                    Duration::from_millis(number_or("SYNTHETIC_LATENCY_MS", "0")?),
+                ))
+                .await
+            }
+            other => {
+                Err(format!("SCRAPER must be twitterapi, fixture or synthetic, not {other}").into())
+            }
         },
         "classifier" => match var_or("CLASSIFIER", "hosted").as_str() {
             "hosted" => run_classifier(classifier::Hosted::from_env()).await,
-            "fake" => run_classifier(classifier::Fake::new(0.5, 0)).await,
+            "fake" => {
+                let latency = Duration::from_millis(number_or("FAKE_LATENCY_MS", "0")?);
+                run_classifier(classifier::Fake::new(0.5, 0).with_latency(latency)).await
+            }
             other => Err(format!("CLASSIFIER must be hosted or fake, not {other}").into()),
         },
         other => Err(format!("--role must be scraper or classifier, not {other}").into()),
