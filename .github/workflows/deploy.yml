@@ -6,6 +6,12 @@ on:
     branches: [main]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      profile:
+        description: Cargo profile of the images. The profiling profile tags them <sha>-profiling.
+        type: choice
+        options: [release, profiling]
+        default: release
 
 permissions:
   id-token: write
@@ -26,10 +32,18 @@ jobs:
       POSTGRES_PASSWORD: ci-password
       DATABASE_URL: postgres://realfeel:ci-password@localhost:5433/realfeel
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      CARGO_PROFILE: ${{ inputs.profile || 'release' }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Pick the image tag
+        run: |
+          if [ "$CARGO_PROFILE" = release ]; then
+            echo "IMAGE_TAG=${SHA}" >> "$GITHUB_ENV"
+          else
+            echo "IMAGE_TAG=${SHA}-${CARGO_PROFILE}" >> "$GITHUB_ENV"
+          fi
       - run: docker compose up -d --wait postgres
       - name: Apply the migrations so sqlx can check queries
         run: |
@@ -67,7 +81,8 @@ jobs:
           platforms: linux/arm64
           provenance: false
           push: true
-          tags: ${{ steps.ecr.outputs.registry }}/real-feel/api:${{ env.SHA }}
+          tags: ${{ steps.ecr.outputs.registry }}/real-feel/api:${{ env.IMAGE_TAG }}
+          build-args: CARGO_PROFILE=${{ env.CARGO_PROFILE }}
           cache-from: type=gha,scope=images
           cache-to: type=gha,scope=images,mode=max
       - name: Build and push the worker image
@@ -79,29 +94,57 @@ jobs:
           platforms: linux/arm64
           provenance: false
           push: true
-          tags: ${{ steps.ecr.outputs.registry }}/real-feel/worker:${{ env.SHA }}
+          tags: ${{ steps.ecr.outputs.registry }}/real-feel/worker:${{ env.IMAGE_TAG }}
+          build-args: CARGO_PROFILE=${{ env.CARGO_PROFILE }}
           cache-from: type=gha,scope=images
-      - name: Restart the API, then the workers
+      - name: Write the image tag for new instances
         run: |
-          for role in api worker; do
+          aws ssm put-parameter --name /real-feel/deploy/IMAGE_TAG \
+            --type String --value "$IMAGE_TAG" --overwrite
+      - name: Restart the API, then the scraper and classifier
+        run: |
+          for role in api scraper classifier; do
             command_id=$(aws ssm send-command \
               --document-name AWS-RunShellScript \
               --targets "Key=tag:role,Values=${role}" \
-              --parameters "commands=[\"/opt/real-feel/restart.sh ${SHA}\"]" \
+              --parameters "commands=[\"/opt/real-feel/restart.sh ${IMAGE_TAG}\"]" \
               --query Command.CommandId --output text)
-            status=Pending
-            for _ in $(seq 120); do
-              sleep 5
-              status=$(aws ssm list-command-invocations --command-id "$command_id" \
-                --query 'CommandInvocations[0].Status' --output text)
-              case "$status" in
-                Success | Failed | Cancelled | TimedOut) break ;;
-              esac
+            targeted=0
+            for _ in $(seq 10); do
+              targeted=$(aws ssm list-commands --command-id "$command_id" \
+                --query 'Commands[0].TargetCount' --output text)
+              [ "$targeted" != None ] && [ "$targeted" -gt 0 ] && break
+              sleep 3
             done
-            aws ssm list-command-invocations --command-id "$command_id" --details \
-              --query 'CommandInvocations[].CommandPlugins[].Output' --output text
-            if [ "$status" != Success ]; then
-              echo "restart.sh ended with status ${status} on the ${role} instance" >&2
+            if [ "$targeted" = None ] || [ "$targeted" -eq 0 ]; then
+              echo "No instance has the tag role=${role}" >&2
               exit 1
             fi
+            # Invocations appear a few seconds after the command, so count them first.
+            for _ in $(seq 120); do
+              sleep 5
+              pending=$(aws ssm list-command-invocations --command-id "$command_id" \
+                --query "length(CommandInvocations[?Status=='Pending' || Status=='InProgress' || Status=='Delayed'])" \
+                --output text)
+              total=$(aws ssm list-command-invocations --command-id "$command_id" \
+                --query 'length(CommandInvocations)' --output text)
+              [ "$total" -ge "$targeted" ] && [ "$pending" -eq 0 ] && break
+            done
+            failed=$(aws ssm list-command-invocations --command-id "$command_id" \
+              --query "CommandInvocations[?Status!='Success'].InstanceId" --output text)
+            total=$(aws ssm list-command-invocations --command-id "$command_id" \
+              --query 'length(CommandInvocations)' --output text)
+            if [ "$total" -lt "$targeted" ]; then
+              echo "Only ${total} of ${targeted} ${role} invocations finished in time" >&2
+              [ -n "$failed" ] || failed=none
+            fi
+            if [ -n "$failed" ]; then
+              for instance in $failed; do
+                echo "restart.sh failed on ${role} instance ${instance}:" >&2
+                aws ssm get-command-invocation --command-id "$command_id" --instance-id "$instance" \
+                  --query '[Status, StandardOutputContent, StandardErrorContent]' --output text >&2 || true
+              done
+              exit 1
+            fi
+            echo "restart.sh succeeded on ${total} ${role} instance(s)"
           done

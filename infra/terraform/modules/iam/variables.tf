@@ -1,7 +1,13 @@
 variable "github_repo" {
-  description = "GitHub repository, as owner/name, whose main branch may assume the deploy role."
+  description = "GitHub repository, as owner/name, whose deploy branches may assume the deploy role."
   type        = string
   default     = "danolongo/real-feel"
+}
+
+variable "github_deploy_branches" {
+  description = "Branches of the repository that may assume the deploy role. A branch can end in * to match a prefix."
+  type        = list(string)
+  default     = ["main", "stress-testing", "perf/*"]
 }
 
 variable "datadog_external_id" {
