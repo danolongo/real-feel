@@ -119,6 +119,9 @@ See [writing-rules.md](writing-rules.md) for the full rules.
 | repeatability | noun | How far the bot probability of one eval set item moves when the item passes through one experiment more than once. The eval report gives the standard deviation of the bot probability and the share of items whose `is_bot` answer flips. | stability, variance |
 | manifest | noun | The file in the repository that records the checksum and the item count of the eval set. | index, metadata file |
 | eval bucket | noun | The private S3 bucket `real-feel-eval-<account id>` that holds the eval set. The bootstrap configuration creates it. | eval storage |
+| ALB | noun | The AWS Application Load Balancer `real-feel-api`. It ends HTTPS, redirects HTTP to HTTPS, and forwards requests to the API on port 80. | load balancer, LB |
+| WAF | noun | The AWS WAF web ACL on the ALB. It limits the requests of one IP address and blocks common attack patterns. | firewall |
+| hosted zone | noun | The Route 53 zone of the domain name. The bootstrap configuration creates it. | DNS zone |
 | eval report | noun | A Markdown file in `docs/reports/` that compares experiments. | results, writeup |
 | reliability bin | noun | One of ten equal-width ranges of bot probability. It holds the item count, the mean bot probability, and the share of bots. | bucket |
 | calibration | noun | How closely bot probability matches reality. A calibrated 0.8 is right 80% of the time. | confidence accuracy |

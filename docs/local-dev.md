@@ -49,6 +49,14 @@ This file takes you from a clean machine to a running stack. Run every command f
 
    The API answers `HTTP/1.1 200 OK`.
 
+6. Create an API key. Every query route needs one. The command prints the key once.
+
+   ```bash
+   cargo run -p api --bin api-key -- create --name dev --quota 100
+   ```
+
+   Send the key in the `Authorization: Bearer <key>` header. Set `QUERY_QUOTA_ENABLED=false` to run the API without the query quota.
+
 `docker compose down` stops the containers. Add `-v` to delete the data too.
 
 ## Run the tests

@@ -41,49 +41,164 @@ pub async fn insert_query<'e>(db: impl PgExecutor<'e>, text: &str) -> Result<Que
     .await
 }
 
+#[derive(Clone, Debug)]
+pub struct ApiKey {
+    pub id: Uuid,
+    pub name: String,
+    pub query_quota_per_hour: i32,
+    pub created_at: DateTime<Utc>,
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+/// Stores the SHA-256 hash of a key. The table never holds the key.
+pub async fn insert_api_key<'e>(
+    db: impl PgExecutor<'e>,
+    name: &str,
+    key_sha256: &[u8],
+    query_quota_per_hour: i32,
+) -> Result<ApiKey, Error> {
+    sqlx::query_as!(
+        ApiKey,
+        "INSERT INTO api_keys (id, name, key_sha256, query_quota_per_hour)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, name, query_quota_per_hour, created_at, revoked_at",
+        Uuid::new_v4(),
+        name,
+        key_sha256,
+        query_quota_per_hour
+    )
+    .fetch_one(db)
+    .await
+}
+
+/// Returns whether Postgres revoked the key. A key that is unknown or already revoked returns
+/// `false`.
+pub async fn revoke_api_key<'e>(db: impl PgExecutor<'e>, id: Uuid) -> Result<bool, Error> {
+    let result = sqlx::query!(
+        "UPDATE api_keys SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL",
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
+/// Returns the key with this hash, or `None` when the hash is unknown or the key is revoked.
+pub async fn find_active_api_key<'e>(
+    db: impl PgExecutor<'e>,
+    key_sha256: &[u8],
+) -> Result<Option<ApiKey>, Error> {
+    sqlx::query_as!(
+        ApiKey,
+        "SELECT id, name, query_quota_per_hour, created_at, revoked_at
+        FROM api_keys WHERE key_sha256 = $1 AND revoked_at IS NULL",
+        key_sha256
+    )
+    .fetch_optional(db)
+    .await
+}
+
 pub enum CreatedQuery {
     New(Query),
     Reused(Query),
+    /// The key has used its query quota. The oldest counted query leaves the hour after
+    /// `retry_after`.
+    OverQuota {
+        retry_after: Duration,
+    },
 }
 
 /// Returns the newest query younger than `reuse_window` with the same lower-cased text that has
-/// not failed. Otherwise inserts a new query. The advisory lock gives two identical queries sent
-/// at once one query. A zero `reuse_window` always inserts.
+/// not failed. Otherwise inserts a new query for `api_key`. A zero `reuse_window` always inserts.
+///
+/// With `quota_enabled`, one transaction takes the advisory lock of the key, then the advisory
+/// lock of the text, counts the key's queries of the past hour, and inserts. The key lock puts
+/// parallel requests of one key in a line, so none passes the quota. The text lock gives two
+/// identical queries sent at once one query. A reused query does not count.
 pub async fn create_or_reuse_query(
     pool: &PgPool,
     text: &str,
     reuse_window: Duration,
+    api_key: &ApiKey,
+    quota_enabled: bool,
 ) -> Result<CreatedQuery, Error> {
-    if reuse_window.is_zero() {
-        return insert_query(pool, text).await.map(CreatedQuery::New);
+    if reuse_window.is_zero() && !quota_enabled {
+        return insert_query_for_key(pool, text, api_key.id)
+            .await
+            .map(CreatedQuery::New);
     }
     let mut tx = pool.begin().await?;
+    if quota_enabled {
+        sqlx::query!(
+            r#"SELECT 1 AS "locked!" FROM PG_ADVISORY_XACT_LOCK(HASHTEXTEXTENDED($1::UUID::TEXT, 0))"#,
+            api_key.id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+    }
     sqlx::query!(
         r#"SELECT 1 AS "locked!" FROM PG_ADVISORY_XACT_LOCK(HASHTEXTEXTENDED(LOWER($1), 0))"#,
         text
     )
     .fetch_one(&mut *tx)
     .await?;
-    let earlier = sqlx::query_as!(
-        Query,
-        r#"SELECT id, text, status AS "status: QueryStatus", error, batch_count, created_at, updated_at
-        FROM queries
-        WHERE LOWER(text) = LOWER($1)
-            AND status <> 'failed'
-            AND created_at > NOW() - MAKE_INTERVAL(secs => $2)
-        ORDER BY created_at DESC
-        LIMIT 1"#,
-        text,
-        reuse_window.as_secs_f64()
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    let query = match earlier {
-        Some(query) => CreatedQuery::Reused(query),
-        None => CreatedQuery::New(insert_query(&mut *tx, text).await?),
-    };
+    if !reuse_window.is_zero() {
+        let earlier = sqlx::query_as!(
+            Query,
+            r#"SELECT id, text, status AS "status: QueryStatus", error, batch_count, created_at, updated_at
+            FROM queries
+            WHERE LOWER(text) = LOWER($1)
+                AND status <> 'failed'
+                AND created_at > NOW() - MAKE_INTERVAL(secs => $2)
+            ORDER BY created_at DESC
+            LIMIT 1"#,
+            text,
+            reuse_window.as_secs_f64()
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(query) = earlier {
+            tx.commit().await?;
+            return Ok(CreatedQuery::Reused(query));
+        }
+    }
+    if quota_enabled {
+        let used = sqlx::query!(
+            r#"SELECT COUNT(*) AS "count!",
+                EXTRACT(EPOCH FROM (MIN(created_at) + INTERVAL '1 hour' - NOW()))::DOUBLE PRECISION AS "retry_secs: f64"
+            FROM queries
+            WHERE api_key_id = $1 AND created_at > NOW() - INTERVAL '1 hour'"#,
+            api_key.id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if used.count >= i64::from(api_key.query_quota_per_hour) {
+            let retry_secs = used.retry_secs.unwrap_or(3600.0).max(0.0);
+            return Ok(CreatedQuery::OverQuota {
+                retry_after: Duration::from_secs_f64(retry_secs),
+            });
+        }
+    }
+    let query = insert_query_for_key(&mut *tx, text, api_key.id).await?;
     tx.commit().await?;
-    Ok(query)
+    Ok(CreatedQuery::New(query))
+}
+
+async fn insert_query_for_key<'e>(
+    db: impl PgExecutor<'e>,
+    text: &str,
+    api_key_id: Uuid,
+) -> Result<Query, Error> {
+    sqlx::query_as!(
+        Query,
+        r#"INSERT INTO queries (id, text, api_key_id) VALUES ($1, $2, $3)
+        RETURNING id, text, status AS "status: QueryStatus", error, batch_count, created_at, updated_at"#,
+        Uuid::new_v4(),
+        text,
+        api_key_id
+    )
+    .fetch_one(db)
+    .await
 }
 
 pub async fn fetch_query<'e>(db: impl PgExecutor<'e>, id: Uuid) -> Result<Option<Query>, Error> {
@@ -94,6 +209,16 @@ pub async fn fetch_query<'e>(db: impl PgExecutor<'e>, id: Uuid) -> Result<Option
         id
     )
     .fetch_optional(db)
+    .await
+}
+
+/// Returns how many batches of the query the classifier has finished.
+pub async fn batches_done<'e>(db: impl PgExecutor<'e>, query_id: Uuid) -> Result<i64, Error> {
+    sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "count!" FROM query_batches WHERE query_id = $1"#,
+        query_id
+    )
+    .fetch_one(db)
     .await
 }
 

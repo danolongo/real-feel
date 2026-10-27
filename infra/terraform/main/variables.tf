@@ -4,14 +4,22 @@ variable "region" {
   default     = "us-east-1"
 }
 
-variable "operator_cidr" {
-  description = "CIDR block that may reach the API on port 80, such as 203.0.113.7/32."
+variable "domain_name" {
+  description = "Domain name of the API. The bootstrap configuration owns its hosted zone and certificate."
   type        = string
+  default     = "api.danielemartinez.com"
+}
 
-  validation {
-    condition     = can(cidrhost(var.operator_cidr, 0)) && var.operator_cidr != "0.0.0.0/0"
-    error_message = "operator_cidr must be an IPv4 CIDR block that is not 0.0.0.0/0, such as 203.0.113.7/32."
-  }
+variable "waf_rate_limit" {
+  description = "Requests that one IP address may send in 5 minutes before WAF answers 429."
+  type        = number
+  default     = 1000
+}
+
+variable "waf_rate_limit_enabled" {
+  description = "true makes the rate rule block. false makes the rule count requests and block none."
+  type        = bool
+  default     = true
 }
 
 variable "datadog_external_id" {

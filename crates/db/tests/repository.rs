@@ -406,14 +406,31 @@ async fn finishing_every_batch_before_the_batch_count_leaves_the_status(pool: Pg
 
 const HOUR: Duration = Duration::from_secs(3600);
 
-async fn create(pool: &PgPool, text: &str, reuse_window: Duration) -> (Uuid, bool) {
-    match db::create_or_reuse_query(pool, text, reuse_window)
+async fn key(pool: &PgPool, quota: i32) -> db::ApiKey {
+    db::insert_api_key(pool, "test", Uuid::new_v4().as_bytes(), quota)
         .await
         .unwrap()
-    {
+}
+
+/// Creates a query for a key with a quota that no test reaches.
+async fn create(pool: &PgPool, text: &str, reuse_window: Duration) -> (Uuid, bool) {
+    match create_for(pool, text, reuse_window, &key(pool, 1000).await, true).await {
         CreatedQuery::New(query) => (query.id, false),
         CreatedQuery::Reused(query) => (query.id, true),
+        CreatedQuery::OverQuota { .. } => unreachable!("the quota is 1000"),
     }
+}
+
+async fn create_for(
+    pool: &PgPool,
+    text: &str,
+    reuse_window: Duration,
+    api_key: &db::ApiKey,
+    quota_enabled: bool,
+) -> CreatedQuery {
+    db::create_or_reuse_query(pool, text, reuse_window, api_key, quota_enabled)
+        .await
+        .unwrap()
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -654,4 +671,180 @@ async fn experiment_results_reject_an_unknown_experiment(pool: PgPool) {
     let result =
         db::insert_experiment_results(&pool, Uuid::new_v4(), &[experiment_result("a", 0)]).await;
     assert!(result.is_err());
+}
+
+fn is_new(created: &CreatedQuery) -> bool {
+    matches!(created, CreatedQuery::New(_))
+}
+
+async fn count_for(pool: &PgPool, api_key: &db::ApiKey) -> i64 {
+    sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "count!" FROM queries WHERE api_key_id = $1"#,
+        api_key.id
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn an_active_key_is_found_by_its_hash(pool: PgPool) {
+    let stored = db::insert_api_key(&pool, "alice", &[7u8; 32], 5)
+        .await
+        .unwrap();
+    assert_eq!(
+        (stored.name.as_str(), stored.query_quota_per_hour),
+        ("alice", 5)
+    );
+    assert!(stored.revoked_at.is_none());
+
+    let found = db::find_active_api_key(&pool, &[7u8; 32]).await.unwrap();
+    assert_eq!(found.unwrap().id, stored.id);
+    assert!(
+        db::find_active_api_key(&pool, &[8u8; 32])
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_revoked_key_is_not_found(pool: PgPool) {
+    let stored = db::insert_api_key(&pool, "alice", &[7u8; 32], 5)
+        .await
+        .unwrap();
+    assert!(db::revoke_api_key(&pool, stored.id).await.unwrap());
+    assert!(
+        db::find_active_api_key(&pool, &[7u8; 32])
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(!db::revoke_api_key(&pool, stored.id).await.unwrap());
+    assert!(!db::revoke_api_key(&pool, Uuid::new_v4()).await.unwrap());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn two_keys_cannot_share_a_hash(pool: PgPool) {
+    db::insert_api_key(&pool, "alice", &[7u8; 32], 5)
+        .await
+        .unwrap();
+    assert!(
+        db::insert_api_key(&pool, "bob", &[7u8; 32], 5)
+            .await
+            .is_err()
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_key_over_its_quota_gets_no_new_query(pool: PgPool) {
+    let api_key = key(&pool, 2).await;
+    for text in ["a", "b"] {
+        assert!(is_new(&create_for(&pool, text, HOUR, &api_key, true).await));
+    }
+    let CreatedQuery::OverQuota { retry_after } =
+        create_for(&pool, "c", HOUR, &api_key, true).await
+    else {
+        panic!("the third query passed the quota");
+    };
+    assert!(retry_after > Duration::from_secs(3590) && retry_after <= HOUR);
+    assert_eq!(count_for(&pool, &api_key).await, 2);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_zero_window_still_counts_the_quota(pool: PgPool) {
+    let api_key = key(&pool, 1).await;
+    assert!(is_new(
+        &create_for(&pool, "q", Duration::ZERO, &api_key, true).await
+    ));
+    let again = create_for(&pool, "q", Duration::ZERO, &api_key, true).await;
+    assert!(matches!(again, CreatedQuery::OverQuota { .. }));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn retry_after_ends_when_the_oldest_counted_query_leaves_the_hour(pool: PgPool) {
+    let api_key = key(&pool, 2).await;
+    let CreatedQuery::New(old) = create_for(&pool, "old", HOUR, &api_key, true).await else {
+        panic!("not new");
+    };
+    create_for(&pool, "new", HOUR, &api_key, true).await;
+    sqlx::query!(
+        "UPDATE queries SET created_at = NOW() - INTERVAL '59 minutes' WHERE id = $1",
+        old.id
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let CreatedQuery::OverQuota { retry_after } =
+        create_for(&pool, "x", HOUR, &api_key, true).await
+    else {
+        panic!("the quota was not used");
+    };
+    assert!(retry_after > Duration::from_secs(30) && retry_after <= Duration::from_secs(60));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_query_older_than_an_hour_does_not_count(pool: PgPool) {
+    let api_key = key(&pool, 1).await;
+    let CreatedQuery::New(old) = create_for(&pool, "old", HOUR, &api_key, true).await else {
+        panic!("not new");
+    };
+    sqlx::query!(
+        "UPDATE queries SET created_at = NOW() - INTERVAL '61 minutes' WHERE id = $1",
+        old.id
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(is_new(
+        &create_for(&pool, "new", HOUR, &api_key, true).await
+    ));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_reused_query_does_not_count(pool: PgPool) {
+    let api_key = key(&pool, 1).await;
+    assert!(is_new(&create_for(&pool, "q", HOUR, &api_key, true).await));
+    for _ in 0..3 {
+        let again = create_for(&pool, "Q", HOUR, &api_key, true).await;
+        assert!(matches!(again, CreatedQuery::Reused(_)));
+    }
+    assert_eq!(count_for(&pool, &api_key).await, 1);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_key_over_its_quota_creates_queries_with_the_quota_off(pool: PgPool) {
+    let api_key = key(&pool, 1).await;
+    for text in ["a", "b", "c"] {
+        assert!(is_new(
+            &create_for(&pool, text, HOUR, &api_key, false).await
+        ));
+        assert!(is_new(
+            &create_for(&pool, text, Duration::ZERO, &api_key, false).await
+        ));
+    }
+    assert_eq!(count_for(&pool, &api_key).await, 6);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn parallel_queries_of_one_key_never_pass_the_quota(pool: PgPool) {
+    for window in [HOUR, Duration::ZERO] {
+        let api_key = key(&pool, 4).await;
+        let barrier = Arc::new(Barrier::new(20));
+        let tasks: Vec<_> = (0..20)
+            .map(|n| {
+                let (pool, barrier, api_key) = (pool.clone(), barrier.clone(), api_key.clone());
+                tokio::spawn(async move {
+                    barrier.wait().await;
+                    create_for(&pool, &format!("q{n}"), window, &api_key, true).await
+                })
+            })
+            .collect();
+        let mut created = 0;
+        for task in tasks {
+            created += usize::from(is_new(&task.await.unwrap()));
+        }
+        assert_eq!(created, 4);
+        assert_eq!(count_for(&pool, &api_key).await, 4);
+    }
 }

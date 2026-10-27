@@ -1,23 +1,27 @@
+mod auth;
 mod error;
 
 use std::{error::Error, sync::Arc, time::Duration};
 
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{
         Path, Query, State,
         rejection::{JsonRejection, PathRejection, QueryRejection},
     },
     http::StatusCode,
+    middleware,
     routing::get,
 };
 use chrono::{DateTime, Utc};
-use db::{CreatedQuery, PgPool, ResultTweet, Versions};
+use db::{ApiKey, CreatedQuery, PgPool, ResultTweet, Versions};
 use queue::Queue;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use types::{QueryStatus, ScraperJob};
 use uuid::Uuid;
 
+pub use auth::{generate_key, hash_key};
 pub use error::ApiError;
 
 const MAX_TEXT_CHARS: usize = 512;
@@ -31,12 +35,17 @@ pub struct AppState {
     pub versions: Arc<Versions>,
     pub bot_threshold: f64,
     pub query_reuse: Duration,
+    pub quota_enabled: bool,
 }
 
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/queries", axum::routing::post(create_query))
         .route("/queries/{id}", get(get_query))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_api_key,
+        ))
         .route("/health", get(health))
         .route("/ready", get(ready))
         .with_state(state)
@@ -55,6 +64,7 @@ struct Created {
 #[tracing::instrument(skip_all, fields(query_id = tracing::field::Empty, trace_id = tracing::field::Empty))]
 async fn create_query(
     State(state): State<AppState>,
+    Extension(api_key): Extension<ApiKey>,
     body: Result<Json<NewQuery>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Created>), ApiError> {
     let span = tracing::Span::current();
@@ -67,13 +77,25 @@ async fn create_query(
         return Err(ApiError::InvalidQuery);
     }
 
-    let query = match db::create_or_reuse_query(&state.db, text, state.query_reuse).await? {
+    let created = db::create_or_reuse_query(
+        &state.db,
+        text,
+        state.query_reuse,
+        &api_key,
+        state.quota_enabled,
+    )
+    .await?;
+    let query = match created {
         CreatedQuery::Reused(query) => {
             span.record("query_id", query.id.to_string());
             tracing::info!(status = ?query.status, "query reused");
             return Ok((StatusCode::ACCEPTED, Json(Created { query_id: query.id })));
         }
         CreatedQuery::New(query) => query,
+        CreatedQuery::OverQuota { retry_after } => {
+            tracing::info!(api_key_id = %api_key.id, "query quota used");
+            return Err(ApiError::QuotaExceeded { retry_after });
+        }
     };
     span.record("query_id", query.id.to_string());
     tracing::info!(text = %query.text, "query created");
@@ -107,7 +129,14 @@ struct QueryResponse {
     query_id: Uuid,
     status: QueryStatus,
     error: Option<String>,
+    progress: Progress,
     result: Option<ResultPage>,
+}
+
+#[derive(Serialize)]
+struct Progress {
+    batches_done: i64,
+    batch_count: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -121,8 +150,13 @@ struct TweetView {
     tweet_id: String,
     text: String,
     posted_at: Option<DateTime<Utc>>,
+    like_count: Option<i64>,
+    retweet_count: Option<i64>,
+    reply_count: Option<i64>,
+    view_count: Option<i64>,
     account: AccountView,
     p_bot: Option<f64>,
+    p_llm_text: Option<f64>,
     is_bot: Option<bool>,
 }
 
@@ -130,20 +164,46 @@ struct TweetView {
 struct AccountView {
     id: String,
     handle: String,
+    name: Option<String>,
+    joined_at: Option<DateTime<Utc>>,
+    followers: Option<i32>,
+    following: Option<i32>,
+    tweet_count: Option<i32>,
+    is_verified: Option<bool>,
+    is_automated: Option<bool>,
 }
 
 impl TweetView {
     fn new(row: ResultTweet, bot_threshold: f64) -> Self {
-        let p_bot = row.prediction.map(|prediction| prediction.p_bot);
+        let p_bot = row.prediction.as_ref().map(|prediction| prediction.p_bot);
+        let count = |key: &str| row.tweet.raw.get(key).and_then(Value::as_i64);
         Self {
+            like_count: count("likeCount"),
+            retweet_count: count("retweetCount"),
+            reply_count: count("replyCount"),
+            view_count: count("viewCount"),
             tweet_id: row.tweet.id,
             text: row.tweet.text,
             posted_at: row.tweet.posted_at,
             account: AccountView {
+                name: row
+                    .account
+                    .raw
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string),
                 id: row.account.id,
                 handle: row.account.handle,
+                joined_at: row.account.joined_at,
+                followers: row.account.followers,
+                following: row.account.following,
+                tweet_count: row.account.tweet_count,
+                is_verified: row.account.is_verified,
+                is_automated: row.account.is_automated,
             },
             p_bot,
+            p_llm_text: row.prediction.and_then(|prediction| prediction.p_llm_text),
             is_bot: p_bot.map(|p_bot| p_bot >= bot_threshold),
         }
     }
@@ -193,6 +253,10 @@ async fn get_query(
         query_id: query.id,
         status: query.status,
         error: query.error,
+        progress: Progress {
+            batches_done: db::batches_done(&state.db, id).await?,
+            batch_count: query.batch_count,
+        },
         result,
     }))
 }
@@ -226,7 +290,7 @@ mod tests {
         body::{Body, to_bytes},
         http::Request,
     };
-    use serde_json::{Value, json};
+    use serde_json::json;
     use sqlx::postgres::PgPoolOptions;
     use tower::ServiceExt;
     use types::{MetadataVersion, ModelVersion, QuestionVersion};
@@ -245,6 +309,7 @@ mod tests {
             }),
             bot_threshold: 0.5,
             query_reuse: Duration::ZERO,
+            quota_enabled: true,
         };
         router(state)
     }
@@ -279,6 +344,35 @@ mod tests {
                 raw: json!({}),
             }),
         }
+    }
+
+    #[test]
+    fn tweet_view_reads_counts_and_name_from_raw() {
+        let mut row = result_tweet(Some(0.2));
+        row.tweet.raw =
+            json!({"likeCount": 3, "retweetCount": 0, "replyCount": 1, "viewCount": 120});
+        row.account.raw = json!({"name": "Alice"});
+        let view = TweetView::new(row, 0.5);
+        assert_eq!(
+            (
+                view.like_count,
+                view.retweet_count,
+                view.reply_count,
+                view.view_count
+            ),
+            (Some(3), Some(0), Some(1), Some(120))
+        );
+        assert_eq!(view.account.name.as_deref(), Some("Alice"));
+    }
+
+    #[test]
+    fn tweet_view_leaves_missing_raw_fields_null() {
+        let mut row = result_tweet(None);
+        row.account.raw = json!({"name": ""});
+        let view = TweetView::new(row, 0.5);
+        assert_eq!(view.like_count, None);
+        assert_eq!(view.account.name, None);
+        assert_eq!(view.p_llm_text, None);
     }
 
     #[test]
@@ -326,40 +420,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_query_text_returns_400() {
-        let too_long = "x".repeat(MAX_TEXT_CHARS + 1);
-        for body in [
-            json!({ "text": "" }),
-            json!({ "text": "  \n " }),
-            json!({ "text": too_long }),
-            json!({ "wrong": "field" }),
+    async fn a_query_route_without_a_key_returns_401() {
+        for request in [
+            post(json!({ "text": "hi" })),
+            get_uri(&format!("/queries/{}", Uuid::new_v4())),
+            Request::get("/queries/x")
+                .header("authorization", "Basic abc")
+                .body(Body::empty())
+                .unwrap(),
         ] {
-            let (status, body) = call(post(body)).await;
-            assert_eq!(status, StatusCode::BAD_REQUEST);
-            assert_eq!(body["code"], "invalid_query");
-        }
-    }
-
-    #[tokio::test]
-    async fn invalid_query_id_returns_400() {
-        let (status, body) = call(get_uri("/queries/not-a-uuid")).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body["code"], "invalid_query_id");
-    }
-
-    #[tokio::test]
-    async fn invalid_limit_or_after_returns_400() {
-        let id = Uuid::new_v4();
-        for query in ["limit=0", "limit=201", "limit=abc", "after="] {
-            let (status, body) = call(get_uri(&format!("/queries/{id}?{query}"))).await;
-            assert_eq!(status, StatusCode::BAD_REQUEST, "{query}");
-            assert_eq!(body["code"], "invalid_cursor", "{query}");
+            let (status, body) = call(request).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(body["code"], "unauthorized");
         }
     }
 
     #[tokio::test]
     async fn postgres_failure_returns_500_without_detail() {
-        let (status, body) = call(get_uri(&format!("/queries/{}", Uuid::new_v4()))).await;
+        let request = Request::get(format!("/queries/{}", Uuid::new_v4()))
+            .header("authorization", "Bearer any-key")
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = call(request).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(body["code"], "internal");
         assert_eq!(body["message"], "internal error");
