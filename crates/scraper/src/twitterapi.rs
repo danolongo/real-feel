@@ -25,7 +25,8 @@ pub const USD_PER_CALL_MINIMUM: f64 = 0.00015;
 struct SearchPage {
     tweets: Vec<Value>,
     has_next_page: bool,
-    next_cursor: String,
+    // twitterapi.io sends null when the search finds no tweet.
+    next_cursor: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -54,7 +55,7 @@ struct SearchAuthor {
 struct RecentPage {
     data: RecentData,
     has_next_page: bool,
-    next_cursor: String,
+    next_cursor: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -193,7 +194,7 @@ impl TwitterApi {
             if empty || !page.has_next_page {
                 break;
             }
-            cursor = page.next_cursor;
+            cursor = page.next_cursor.unwrap_or_default();
         }
         tweets.truncate(limit);
         Ok(tweets)
@@ -231,7 +232,7 @@ impl Scraper for TwitterApi {
             if !page.has_next_page {
                 break;
             }
-            cursor = page.next_cursor;
+            cursor = page.next_cursor.unwrap_or_default();
         }
         tracing::info!(
             tweets = tweets.len(),
@@ -276,7 +277,7 @@ mod tests {
         ResponseTemplate::new(200).set_body_json(json!({
             "tweets": tweets,
             "has_next_page": next_cursor.is_some(),
-            "next_cursor": next_cursor.unwrap_or(""),
+            "next_cursor": next_cursor,
         }))
     }
 
@@ -320,6 +321,21 @@ mod tests {
             .await;
         let scraped = scraper(&server, 5).scrape("ai news").await.unwrap();
         assert!(scraped.tweets.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_search_with_no_tweets_returns_an_empty_result() {
+        let server = MockServer::start().await;
+        Mock::given(path("/twitter/tweet/advanced_search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "tweets": [],
+                "has_next_page": false,
+                "next_cursor": null,
+            })))
+            .mount(&server)
+            .await;
+        let scraped = scraper(&server, 5).scrape("no such words").await.unwrap();
+        assert!(scraped.tweets.is_empty() && scraped.accounts.is_empty());
     }
 
     #[tokio::test]
@@ -480,7 +496,7 @@ mod tests {
             "msg": "success",
             "data": { "pin_tweet": null, "tweets": tweets },
             "has_next_page": next_cursor.is_some(),
-            "next_cursor": next_cursor.unwrap_or(""),
+            "next_cursor": next_cursor,
         }))
     }
 
