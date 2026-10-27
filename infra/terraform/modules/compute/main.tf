@@ -305,9 +305,25 @@ resource "aws_autoscaling_group" "group" {
   desired_capacity    = each.value.min_size
   vpc_zone_identifier = var.public_subnet_ids
 
+  # The ALB sends requests only to targets that pass its health check. The
+  # group replaces an instance only when EC2 marks it unhealthy. Before the
+  # first deploy no container runs, and an ALB health check would replace the
+  # instance every few minutes.
   target_group_arns         = each.key == "api" ? [var.target_group_arn] : []
-  health_check_type         = each.key == "api" ? "ELB" : "EC2"
+  health_check_type         = "EC2"
   health_check_grace_period = 300
+
+  # A new launch template version replaces the running instances. Each new
+  # instance starts before an old one stops.
+  instance_refresh {
+    strategy = "Rolling"
+
+    preferences {
+      min_healthy_percentage = 100
+      max_healthy_percentage = 200
+      instance_warmup        = 300
+    }
+  }
 
   metrics_granularity = "1Minute"
   enabled_metrics = [

@@ -5,8 +5,10 @@
 # This file runs system-only mode: the synthetic scraper and the fake
 # classifier replace twitterapi.io and Cloudflare, and the query quota is off.
 # For full mode, which calls the real services:
-#   - Delete the three config_overrides entries below, or set SCRAPER = "twitterapi",
-#     CLASSIFIER = "hosted", and QUERY_QUOTA_ENABLED = "true".
+#   - Set SCRAPER = "twitterapi" and CLASSIFIER = "hosted" below. Keep the
+#     query quota off.
+#   - Set scraper_max_size = 1. Every scraper instance calls twitterapi.io
+#     with the same key.
 #   - Keep the real secrets in SSM. See the Terraform README, step 5.
 # Run terraform destroy when the load test session ends.
 
