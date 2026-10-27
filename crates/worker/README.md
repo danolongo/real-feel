@@ -44,9 +44,10 @@ Failure flow, in both roles:
 1. The worker runs each job under `tokio::time::timeout` of `JOB_DEADLINE_SECS`. A timeout counts as a failure.
 2. The worker deletes the job after the handler returns, which is after Postgres commits.
 3. A failure leaves the job in the queue. SQS delivers the job again after the visibility timeout.
-4. A failure on receive 5 or later sets the query status to `failed` and records the error. The job stays in the queue, and SQS moves it to the dead-letter queue.
-5. The DLQ reader takes each job from the role's dead-letter queue. It sets the query status to `failed` and deletes the job.
-6. The worker joins the trace of the API with `Received::continue_trace`.
+4. A broken message (not valid JSON for its job type) never reaches `handle`. The worker logs it at error level and leaves it in the queue. It does not stop the other jobs of the receive. SQS moves it to the dead-letter queue after `maxReceiveCount` receives.
+5. A failure on receive 5 or later sets the query status to `failed` and records the error. The job stays in the queue, and SQS moves it to the dead-letter queue.
+6. The DLQ reader takes each job from the role's dead-letter queue. It sets the query status to `failed` and deletes the job. It logs each broken message at error level and deletes it.
+7. The worker joins the trace of the API with `Received::continue_trace`.
 
 ## Configuration
 
@@ -55,12 +56,16 @@ Failure flow, in both roles:
 | `DATABASE_URL` | none | Postgres address. |
 | `SCRAPER_QUEUE_URL`, `SCRAPER_DLQ_URL` | none | The scraper role's queue and dead-letter queue. |
 | `CLASSIFIER_QUEUE_URL`, `CLASSIFIER_DLQ_URL` | none | The classifier role's queue and dead-letter queue. The scraper role sends to `CLASSIFIER_QUEUE_URL`. |
-| `SCRAPER` | `twitterapi` | Scraper implementation: `twitterapi` or `fixture`. |
+| `SCRAPER` | `twitterapi` | Scraper implementation: `twitterapi`, `fixture`, or `synthetic`. |
 | `TWITTERAPI_KEY` | none | The twitterapi.io key. Required with `SCRAPER=twitterapi`. |
 | `TWITTERAPI_PAGES` | `5` | The most search pages for each query, 20 tweets each. |
 | `TWITTERAPI_INTERVAL_SECS` | `5` | The time from the start of one request to the start of the next. The free tier allows one request every 5 seconds. |
 | `FIXTURE_PATH` | `crates/scraper/fixtures/default.json` | The file the `fixture` scraper reads. |
+| `SYNTHETIC_TWEETS` | `50` | Tweets the `synthetic` scraper makes for each query. |
+| `SYNTHETIC_LATENCY_MS` | `0` | Pause in each synthetic scrape, in milliseconds. |
 | `CLASSIFIER` | `hosted` | Classifier implementation: `hosted` or `fake`. |
+| `FAKE_LATENCY_MS` | `0` | Pause in each classify call of the `fake` classifier, in milliseconds. |
+| `DB_MAX_CONNECTIONS` | `10` | Size of the Postgres connection pool. |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | none | Read by the hosted classifier. |
 | `CLASSIFIER_RPS` | `5` | Request limit of the hosted classifier. |
 | `DEFAULT_METADATA_VERSION`, `DEFAULT_QUESTION_VERSION` | none | Versions the classifier role builds model inputs with. |

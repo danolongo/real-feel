@@ -72,9 +72,17 @@ impl Context {
     ) -> Infallible {
         loop {
             match self.jobs.receive::<J>(WAIT_SECONDS).await {
-                Ok(received) => {
+                Ok(batch) => {
+                    for broken in &batch.broken {
+                        tracing::error!(
+                            message_id = ?broken.message_id,
+                            error = %broken.error,
+                            "broken message left in the queue for the dead-letter queue"
+                        );
+                    }
                     join_all(
-                        received
+                        batch
+                            .jobs
                             .iter()
                             .map(|received| self.process(received, &handle)),
                     )
@@ -131,11 +139,22 @@ impl Context {
     }
 
     /// Reads the dead-letter queue without end. Sets each job's query `failed`, then deletes the job.
+    /// Deletes each broken message after it logs the message.
     pub async fn read_dlq<J: QueryJob>(&self) -> Infallible {
         loop {
             match self.dlq.receive::<J>(WAIT_SECONDS).await {
-                Ok(received) => {
-                    for received in received {
+                Ok(batch) => {
+                    for broken in &batch.broken {
+                        tracing::error!(
+                            message_id = ?broken.message_id,
+                            error = %broken.error,
+                            "broken dead-letter message, deleting it"
+                        );
+                        if let Err(error) = self.dlq.delete(&broken.receipt_handle).await {
+                            tracing::error!(%error, "cannot delete the broken dead-letter message");
+                        }
+                    }
+                    for received in batch.jobs {
                         tracing::warn!(
                             query_id = %received.job.query_id(),
                             "dead-letter job found, failing the query"
