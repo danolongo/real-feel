@@ -620,7 +620,8 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
   - `QUERY_QUOTA_ENABLED` turns the quota on or off. It is `true` in production. M6 sets it to `false` for load tests. The compute `config` map writes it to SSM, so a deploy picks up a change.
 - [ ] **5.4** `infra/terraform`: You add an ALB in the public subnets.
   - The HTTPS listener uses a certificate from ACM. The HTTP listener redirects to HTTPS. The ALB checks `GET /health`.
-  - ACM needs a domain name. You register one in Route 53 for about 15 USD per year, or you use one you own.
+  - ACM needs a domain name. Cloudflare registers `danielemartinez.com` and runs its DNS. `domain_name` is `api.danielemartinez.com`. Route 53 holds a hosted zone for that subdomain alone, and 4 NS records in Cloudflare delegate the subdomain to it.
+  - The certificate validates only after Cloudflare delegates the subdomain. The first bootstrap apply therefore runs in two steps: you create the zone alone, add its name servers to Cloudflare, and then apply the rest.
   - The ALB security group accepts ports 80 and 443 from anywhere. `operator_cidr` goes away.
   - The ALB security group has one egress rule: port 80 to the API security group. The network module strips the default egress rule, so without it every health check fails and the ALB answers `502`.
   - The API security group accepts port 80 only from the ALB security group. The API instance loses its Elastic IP. It keeps its auto-assigned public IP, because it reaches ECR, SSM, SQS, and Datadog with no NAT gateway. The security group alone keeps the internet out.
@@ -631,6 +632,11 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
   - The variable `waf_rate_limit_enabled` turns the rate rule on or off. Off sets the rule action to `count`: WAF records the requests and blocks none. M6 sets it to `false` for load tests.
   - The rule covers every route, including the routes that need no key.
   - The AWS managed core rule set blocks common attack patterns.
+- [ ] **5.7** `crates/api` and `crates/db`: You extend `GET /queries/{id}` for the dashboard on danielemartinez.com. Every new field is additive and can be null.
+  - `progress` holds `batches_done` and `batch_count` in every status. `batches_done` counts the query's `query_batches` rows. `batch_count` stays null until the scraper sets it.
+  - Each tweet gains `like_count`, `retweet_count`, `reply_count`, `view_count`, and `p_llm_text`. The counts come from the tweet's `raw` JSON (`likeCount`, `retweetCount`, `replyCount`, `viewCount`), so no migration is needed.
+  - Each account gains `name` from its `raw` JSON, plus `joined_at`, `followers`, `following`, `tweet_count`, `is_verified`, and `is_automated`.
+  - The dashboard calls the API with its own API key, with a quota of 60 queries per hour. The dashboard caps searches per visitor itself.
 - [ ] **5.6** You ask AWS for a G-instance vCPU quota increase, on-demand and Spot. Ask for 4 vCPUs of each. New accounts start at 0. Approval can take days, so M7 needs this request in early.
 
 **Cost:** the ALB costs about 16 USD a month plus LCU charges. WAF costs about 5 USD a month for the web ACL, 1 USD for each rule, and 0.60 USD for each million requests. Together they add about 24 USD a month. The hosted zone adds 0.50 USD a month. Both bill by the hour, so a `destroy` of the main configuration between sessions stops the ALB and WAF charges.
@@ -644,7 +650,8 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 - [ ] A burst from one IP address above the WAF limit gets `429` from WAF. The burst lasts longer than one 5-minute window, because WAF takes time to start blocking.
 - [ ] With `QUERY_QUOTA_ENABLED=false`, a key over its quota still creates queries.
 - [ ] With `waf_rate_limit_enabled = false`, the same burst gets no `429` from WAF.
-- [ ] `curl https://<domain>/health` answers over a valid certificate. HTTP redirects to HTTPS. The API instance answers no request from the internet directly.
+- [ ] `curl https://api.danielemartinez.com/health` answers over a valid certificate. HTTP redirects to HTTPS. The API instance answers no request from the internet directly.
+- [ ] `GET /queries/{id}` returns `progress` in every status, and the new tweet and account fields once the status is `done`.
 - [ ] AWS has received the GPU quota application.
 - [ ] `terraform destroy` followed by `terraform apply` and one `deploy.yml` run rebuilds the stack, with the ALB, WAF, and certificate. You prove it once. This item moved from M3. Between `apply` and the deploy, you set the four secrets again with `put-parameter`, because `apply` writes placeholders. After the deploy, you create a new API key, because `destroy` deletes RDS.
 

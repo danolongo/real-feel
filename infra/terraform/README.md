@@ -40,7 +40,7 @@ See [glossary.md](../../docs/glossary.md) for `bootstrap configuration`, `eval b
 | `region` | `us-east-1` | The AWS region. |
 | `datadog_external_id` | none | The external ID that Datadog shows when you add the AWS integration. |
 | `datadog_site` | `datadoghq.com` | The Datadog site. |
-| `domain_name` | none | The domain name of the API. Both configurations take it. |
+| `domain_name` | `api.danielemartinez.com` | The domain name of the API. Both configurations take it. |
 | `waf_rate_limit` | `1000` | The requests that one IP address may send in 5 minutes before WAF answers `429`. |
 | `waf_rate_limit_enabled` | `true` | `false` makes the rate rule count requests and block none. |
 
@@ -50,8 +50,23 @@ The bootstrap configuration takes `region` and `domain_name`. The main configura
 
 The API needs a domain name, because ACM issues a certificate only for a domain.
 
-- **Register a domain in Route 53.** This costs about 15 USD a year. Register it before step 1. Route 53 points the domain at the hosted zone that the bootstrap configuration creates. When the registration created its own zone, delete that zone first.
-- **Use a domain you own.** Run step 1. Then set the name servers of the domain at your registrar to the `zone_name_servers` output. ACM validates the certificate only after the name servers change, so `apply` waits until they do.
+`domain_name` is `api.danielemartinez.com`. Cloudflare registers `danielemartinez.com` and runs its DNS. Route 53 holds a hosted zone for the `api` subdomain alone, and Cloudflare delegates the subdomain to it.
+
+ACM validates the certificate only after the delegation works. The first bootstrap apply therefore runs in two steps:
+
+1. Create the zone alone:
+
+   ```bash
+   terraform -chdir=infra/terraform/bootstrap apply \
+     -var domain_name=api.danielemartinez.com -target=aws_route53_zone.main
+   terraform -chdir=infra/terraform/bootstrap output zone_name_servers
+   ```
+
+2. In the Cloudflare dashboard, open the `danielemartinez.com` zone and then **DNS > Records**. Add one record for each of the 4 name servers: type `NS`, name `api`, content the name server. NS records take no proxy.
+3. Check the delegation. `dig NS api.danielemartinez.com +short` prints the 4 Route 53 name servers.
+4. Run the full bootstrap apply in [Run it](#run-it), step 1. It creates the certificate and waits until ACM validates it, usually a few minutes.
+
+The bootstrap configuration owns the zone, and `prevent_destroy` keeps it, so the 4 NS records in Cloudflare stay valid.
 
 The bootstrap configuration owns the zone and the certificate. The main configuration reads both by domain name. A `destroy` of the main configuration keeps the name servers and the validated certificate.
 
@@ -75,10 +90,10 @@ Run every command from the repository root.
 
    ```bash
    terraform -chdir=infra/terraform/bootstrap init
-   terraform -chdir=infra/terraform/bootstrap apply -var domain_name=<domain name>
+   terraform -chdir=infra/terraform/bootstrap apply -var domain_name=api.danielemartinez.com
    ```
 
-   Terraform waits for ACM to validate the certificate. See [Domain and certificate](#domain-and-certificate) when the domain is not in Route 53.
+   On the first apply, create the zone and delegate it first. See [Domain and certificate](#domain-and-certificate).
 
 2. Initialize the main configuration with the bucket from the bootstrap output.
 
@@ -93,7 +108,7 @@ Run every command from the repository root.
 
    ```bash
    terraform -chdir=infra/terraform/main apply \
-     -var domain_name=<domain name> \
+     -var domain_name=api.danielemartinez.com \
      -var datadog_external_id=<external ID> \
      -var datadog_site=us5.datadoghq.com
    ```
@@ -133,7 +148,7 @@ The eval set holds X content, so it lives in the private eval bucket and never i
 1. Apply the bootstrap configuration again. It creates the eval bucket.
 
    ```bash
-   terraform -chdir=infra/terraform/bootstrap apply -var domain_name=<domain name>
+   terraform -chdir=infra/terraform/bootstrap apply -var domain_name=api.danielemartinez.com
    ```
 
 2. Copy the eval set and its manifest to the bucket.
@@ -151,7 +166,7 @@ The eval set holds X content, so it lives in the private eval bucket and never i
 Send the request to the domain name over HTTPS. HTTP redirects to HTTPS. `alb_dns_name` shows the ALB that the domain name points at.
 
 ```bash
-API=<domain name>
+API=api.danielemartinez.com
 curl -s -X POST "https://$API/queries" -H 'content-type: application/json' -d '{"text": "ai"}'
 ```
 
@@ -167,7 +182,7 @@ Destroy the main configuration. The bootstrap configuration stays, because the s
 
 ```bash
 terraform -chdir=infra/terraform/main destroy \
-  -var domain_name=<domain name> \
+  -var domain_name=api.danielemartinez.com \
   -var datadog_external_id=<external ID> \
   -var datadog_site=us5.datadoghq.com
 ```
@@ -194,7 +209,6 @@ These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-
 | **Total** | | **about 70 to 74** |
 
 - The two instances hold two public IPv4 addresses. A third address appears while you replace an instance. The ALB holds its own addresses, which the ALB price includes.
-- The domain costs about 15 USD a year when you register it in Route 53.
 - The ALB and WAF bill by the hour, so a `destroy` of the main configuration stops both. The hosted zone keeps billing.
 - Data transfer, CloudWatch Logs, and the Datadog subscription cost extra.
 - RDS keeps one day of backups, which the free backup allowance covers.
@@ -208,7 +222,7 @@ These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-
 - **`apply` fails with an access error.** Your AWS credentials lack a permission. Fix the credentials and run `apply` again.
 - **`deploy.yml` cannot assume the role.** `AWS_DEPLOY_ROLE_ARN` is wrong or missing. Set it again from step 6.
 - **The restart script fails on an instance.** Run `aws ssm start-session --target <instance id>`, then read the script output. A secret that still holds `placeholder` is the usual cause. Redo step 5.
-- **The bootstrap `apply` waits on the certificate.** ACM cannot see the DNS validation record. Set the name servers of the domain to the `zone_name_servers` output.
+- **The bootstrap `apply` waits on the certificate.** ACM cannot see the DNS validation record. Add the `zone_name_servers` output to Cloudflare as NS records named `api`.
 - **The main `apply` finds no certificate.** The bootstrap configuration has not issued one for `domain_name`. Apply the bootstrap configuration with the same `domain_name`.
 - **The ALB answers `502`.** The health check fails. Check that the API container runs, and that `GET /health` answers `200` on port 80 of the API instance.
 - **WAF answers `429` to a legitimate client.** The client passed `waf_rate_limit`. Raise the limit and run `apply`.

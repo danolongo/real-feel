@@ -7,6 +7,7 @@ variable "region" {
 variable "domain_name" {
   description = "Domain name of the API. The bootstrap configuration owns its hosted zone and certificate."
   type        = string
+  default     = "api.danielemartinez.com"
 }
 
 variable "waf_rate_limit" {
