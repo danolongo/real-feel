@@ -3,8 +3,10 @@ use std::{future::Future, path::Path};
 use serde::Deserialize;
 use types::{Account, Tweet};
 
+mod synthetic;
 mod twitterapi;
 
+pub use synthetic::Synthetic;
 pub use twitterapi::{TwitterApi, USD_PER_1000_TWEETS, USD_PER_CALL_MINIMUM};
 
 #[derive(Debug, thiserror::Error)]

@@ -41,9 +41,9 @@ data "aws_iam_policy_document" "github_trust" {
     }
 
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:ref:refs/heads/main"]
+      values   = [for branch in var.github_deploy_branches : "repo:${var.github_repo}:ref:refs/heads/${branch}"]
     }
   }
 }
@@ -92,10 +92,17 @@ data "aws_iam_policy_document" "github_deploy" {
   }
 
   statement {
+    sid       = "WriteImageTag"
+    actions   = ["ssm:GetParameter", "ssm:PutParameter"]
+    resources = ["arn:aws:ssm:${local.region}:${local.account_id}:parameter/real-feel/deploy/IMAGE_TAG"]
+  }
+
+  statement {
     sid = "ReadCommandResults"
     actions = [
       "ssm:GetCommandInvocation",
       "ssm:ListCommandInvocations",
+      "ssm:ListCommands",
     ]
     resources = ["*"]
   }

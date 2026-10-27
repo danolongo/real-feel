@@ -1,0 +1,26 @@
+[
+  {
+    "name": "Real Feel: API availability",
+    "type": "metric",
+    "description": "The share of API requests that do not fail.",
+    "query": {
+      "numerator": "sum:trace.http.server.request.hits{service:api}.as_count() - sum:trace.http.server.request.errors{service:api}.as_count()",
+      "denominator": "sum:trace.http.server.request.hits{service:api}.as_count()"
+    },
+    "thresholds": [{ "timeframe": "7d", "target": 99.0 }]
+  },
+  {
+    "name": "Real Feel: POST /queries latency",
+    "type": "monitor",
+    "description": "The share of time that POST /queries p99 latency stays below 500 ms.",
+    "monitor_names": ["Real Feel: POST /queries p99 latency"],
+    "thresholds": [{ "timeframe": "7d", "target": 99.0 }]
+  },
+  {
+    "name": "Real Feel: time from queued to done",
+    "type": "monitor",
+    "description": "The share of time that the p95 time from queued to done stays below 2 minutes.",
+    "monitor_names": ["Real Feel: time from queued to done p95"],
+    "thresholds": [{ "timeframe": "7d", "target": 99.0 }]
+  }
+]

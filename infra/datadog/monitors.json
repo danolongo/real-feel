@@ -1,0 +1,30 @@
+[
+  {
+    "name": "Real Feel: POST /queries p99 latency",
+    "type": "query alert",
+    "query": "percentile(last_5m):p99:trace.http.server.request{service:api,resource_name:post_/queries} > 0.5",
+    "message": "POST /queries p99 latency is above 500 ms for 5 minutes.",
+    "options": { "thresholds": { "critical": 0.5 }, "notify_no_data": false }
+  },
+  {
+    "name": "Real Feel: API error rate",
+    "type": "query alert",
+    "query": "sum(last_5m):sum:trace.http.server.request.errors{service:api}.as_count() / sum:trace.http.server.request.hits{service:api}.as_count() > 0.01",
+    "message": "More than 1% of API requests failed in the past 5 minutes.",
+    "options": { "thresholds": { "critical": 0.01 }, "notify_no_data": false }
+  },
+  {
+    "name": "Real Feel: time from queued to done p95",
+    "type": "query alert",
+    "query": "percentile(last_15m):p95:real_feel.queued_to_done_ms{*} > 120000",
+    "message": "The p95 time from queued to done is above 2 minutes for 15 minutes.",
+    "options": { "thresholds": { "critical": 120000 }, "notify_no_data": false }
+  },
+  {
+    "name": "Real Feel: job in a dead-letter queue",
+    "type": "log alert",
+    "query": "logs(\"\\\"dead-letter\\\"\").index(\"*\").rollup(\"count\").last(\"5m\") > 0",
+    "message": "A worker logged a job or a broken message from a dead-letter queue.",
+    "options": { "thresholds": { "critical": 0 }, "enable_logs_sample": true, "notify_no_data": false }
+  }
+]

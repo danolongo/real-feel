@@ -1,4 +1,7 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 
 use serde_json::json;
 use types::{ModelInput, ModelVersion, Prediction};
@@ -9,6 +12,7 @@ use crate::{Classifier, Error};
 pub struct Fake {
     p_bot: Option<f64>,
     failures: usize,
+    latency: Duration,
     calls: AtomicUsize,
 }
 
@@ -18,6 +22,7 @@ impl Fake {
         Self {
             p_bot: Some(p_bot),
             failures,
+            latency: Duration::ZERO,
             calls: AtomicUsize::new(0),
         }
     }
@@ -27,8 +32,15 @@ impl Fake {
         Self {
             p_bot: None,
             failures,
+            latency: Duration::ZERO,
             calls: AtomicUsize::new(0),
         }
+    }
+
+    /// Pauses `latency` in each `classify` call, before it returns or fails.
+    pub fn with_latency(mut self, latency: Duration) -> Self {
+        self.latency = latency;
+        self
     }
 }
 
@@ -49,6 +61,7 @@ impl Classifier for Fake {
     }
 
     async fn classify(&self, inputs: &[ModelInput]) -> Result<Vec<Prediction>, Error> {
+        tokio::time::sleep(self.latency).await;
         if self.calls.fetch_add(1, Ordering::SeqCst) < self.failures {
             return Err(Error::Fake);
         }
@@ -117,6 +130,15 @@ mod tests {
             Err(Error::Fake)
         ));
         assert!(fake.classify(&[input("1")]).await.is_ok());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn pauses_for_the_latency_in_each_call() {
+        let fake = Fake::new(0.5, 0).with_latency(Duration::from_millis(300));
+        let started = tokio::time::Instant::now();
+        fake.classify(&[input("1")]).await.unwrap();
+        fake.classify(&[input("1")]).await.unwrap();
+        assert_eq!(started.elapsed(), Duration::from_millis(600));
     }
 
     #[tokio::test]

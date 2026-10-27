@@ -17,3 +17,8 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # Dependencies build without debug info. This shrinks target/ and speeds up linking.
 [profile.dev.package."*"]
 debug = false
+
+# Release code with line tables, so perf and inferno can name the functions in a flame graph.
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"

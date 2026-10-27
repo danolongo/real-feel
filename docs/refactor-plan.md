@@ -33,7 +33,7 @@ You build this system to learn. You also build it to run at serious load. Two ou
 ## Target architecture
 
 ```text
-                 (M5: ALB, M6: Auto Scaling Group)
+                 (M5: ALB, M6: Auto Scaling group)
 User ──HTTP──▶ API (Rust, axum, EC2) ──────────▶ Postgres + pgvector (RDS)
                   │                                   ▲
                   │ scraper job                       │ tweets, accounts,
@@ -120,7 +120,7 @@ Each row becomes a decision record in M0. "Agreed" rows come from the design dis
 | D7 | The API and workers run on EC2. | Fixed capacity makes load tests measure Real Feel's code, not Lambda's scaling. | Agreed |
 | D8 | Postgres holds query status. DynamoDB goes away. | One database is simpler than two. Postgres handles the load. | Agreed |
 | D9 | One Postgres instance, with connection pooling in M6. Sharding waits for M9. | A million tweets with their accounts and predictions fits in a few GB. Load tests must prove a need before you shard. | Agreed |
-| D10 | No load balancer until M5. M5 adds an ALB, and M6 adds an Auto Scaling Group. | One API instance needs no load balancer. Scaling experiments need one. | Agreed |
+| D10 | No load balancer until M5. M5 adds an ALB, and M6 adds an Auto Scaling group. | One API instance needs no load balancer. Scaling experiments need one. | Agreed |
 | D11 | You run Clef-flash on your own GPU instance (M7). | Learning goal. You own the model operations end to end. | Agreed |
 | D12 | Datadog for observability. The code emits OpenTelemetry. | The Datadog student plan is free for 2 years and covers 10 hosts. OpenTelemetry keeps the code vendor-neutral. | Agreed |
 | D13 | Two queues: `scraper-jobs` and `classifier-jobs`. | Scraping and classifying have different speeds and costs. Two queues let each worker role autoscale on its own queue. | Proposed |
@@ -292,7 +292,7 @@ You write docs as you build. Docs ship in the same PR as the code.
 | M3 | First AWS deployment | The same flow runs on AWS, with Datadog |
 | M4 | Eval set and metadata versions | Evidence on which metadata version classifies best |
 | M5 | Public API | API keys, query quotas, WAF rate limits, HTTPS through an ALB |
-| M6 | Load tests, profiling, and performance | Measured break points, profiles, fixes, Auto Scaling Groups, SLOs |
+| M6 | Load tests, profiling, and performance | Measured break points, profiles, fixes, Auto Scaling groups, SLOs |
 | M7 | Self-hosted backend: reference server | Clef-flash runs on your own GPU. Quantization cost measured. |
 | M8 | Self-hosted backend: candle server | Rust inference server checked for parity and benchmarked |
 | M9 | Later experiments | Sharding, semantic search, time-series analysis, query decomposition |
@@ -663,43 +663,88 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 
 **Tasks**
 
-- [ ] **6.1** `loadtest/k6`: You write four scenarios:
+Tasks 6.1 to 6.8 are code. You finish them before the first load test runs on AWS. Tasks 6.9 to 6.15 need a running stack.
+
+- [ ] **6.1** `crates/scraper`, `crates/classifier`, `crates/worker`: You give the load tests a system-only mode that does real work.
+  - The synthetic scraper makes `SYNTHETIC_TWEETS` tweets and their accounts for each query. It derives every tweet ID and account ID from a hash of the query text. A repeated query text then writes the same rows, and a new text writes new rows.
+  - `SYNTHETIC_LATENCY_MS` sets a pause in each synthetic scrape. `FAKE_LATENCY_MS` sets a pause in each fake classify call. The pauses stand in for twitterapi.io and Cloudflare, so the queues build a backlog.
+  - `SCRAPER=synthetic` picks the synthetic scraper. `SCRAPER=fixture` stays for CI.
+- [ ] **6.2** `crates/queue`, `crates/worker`: You make one broken job unable to stop other jobs.
+  - Today `Queue::receive` fails the whole receive when one message is not valid JSON. The 9 other jobs of that receive return to the queue and count a receive.
+  - `receive` parses each message on its own. It returns the broken messages apart from the jobs.
+  - A worker logs a broken message and leaves it. SQS moves it to the DLQ after `maxReceiveCount` receives.
+  - The DLQ reader logs a broken message and deletes it. Today the DLQ reader hits the same parse error on every pass, so the broken message never leaves the DLQ.
+- [ ] **6.3** `crates/api`, `crates/worker`: `DB_MAX_CONNECTIONS` sets the size of each sqlx pool. The default stays 10.
+- [ ] **6.4** `infra/terraform`: You split the compute into three Auto Scaling groups: `api`, `scraper`, and `classifier`.
+  - Each group uses a launch template. A root variable sets each group's instance type, minimum size, and maximum size. The defaults keep production at one `t4g.small` instance in each group.
+  - The role file and the `role` tag hold `api`, `scraper`, or `classifier`. The restart script starts only that role's container on an instance.
+  - The API group registers its instances with the ALB target group through `target_group_arns`. `aws_lb_target_group_attachment` and `api_instance_id` go away. The API group uses the ALB health check, with a grace period that covers the first boot.
+  - The target group's deregistration delay drops to 30 s, so a scale-in finishes fast.
+  - The API group scales on `ALBRequestCountPerTarget`. Each worker group scales on its queue's backlog per instance: `ApproximateNumberOfMessagesVisible` divided by the group's in-service instance count.
+  - Each worker group removes at most one instance in each 5-minute window. A removed worker drops its in-flight jobs, and SQS returns each one after the visibility timeout with one more receive. A slow scale-in keeps that churn far below `maxReceiveCount`.
+  - Each group turns on its group metrics, so Datadog can show the instance count.
+  - A root variable sets the RDS instance class. The default stays `db.t4g.micro`.
+  - `loadtest.tfvars` holds the load test sizes: `c7g.large` instances, `db.m7g.large`, and maximum sizes of 3 for `api` and 2 for each worker group. RDS `t4g` classes run with unlimited CPU credits, so a `ramp` on `db.t4g.micro` would measure the credit balance, not the code.
+- [ ] **6.5** `infra/terraform`, `deploy.yml`: A new instance starts the deployed images on its first boot.
+  - `deploy.yml` writes the image tag to the SSM parameter `/real-feel/deploy/IMAGE_TAG` before it restarts the instances. Terraform creates the parameter and ignores later changes to its value.
+  - User data runs the restart script with that tag. If no deploy has run, the instance waits for the first deploy.
+  - `deploy.yml` restarts the `api`, `scraper`, and `classifier` instances. It fails when any instance's SSM invocation fails, not only the first.
+  - The SSM parameters `SCRAPER` and `CLASSIFIER` pick the scraper and the classifier. The restart script defaults them to `twitterapi` and `hosted`. Today the script writes the defaults after the SSM values, so SSM cannot switch them.
+- [ ] **6.6** `infra/terraform`, `deploy.yml`: You can deploy a branch before it merges.
+  - The deploy role trusts `main`, `stress-testing`, and `perf/*` branches. You run `deploy.yml` on those branches by hand. Only a push to `main` deploys on its own.
+  - A `profile` input picks the Cargo profile of the images: `release` or `profiling`. The `profiling` profile adds line tables and frame pointers, so `perf` can walk the call stacks.
+- [ ] **6.7** `loadtest/k6`: You write four scenarios:
   - `smoke`: a low rate that checks the scripts work
-  - `ramp`: a rising rate until the targets fail
+  - `ramp`: a rising rate until a scenario reaches its break point
   - `burst`: a sudden jump in rate
   - `soak`: a steady rate for one hour
 
-  Each scenario sets the share of queries that repeat an earlier query's text. The report gives the query reuse rate next to each break point. The scripts send an API key whose query quota exceeds the test's rate. The WAF limit allows the load generator's IP address.
-- [ ] **6.2** You run each scenario in two modes:
-  - **System only:** fake scraper and fake classifier. The test measures Real Feel's own code.
-  - **Full:** real twitterapi.io and the hosted backend. The test measures the whole chain. It costs real money, so run it at a small scale.
-- [ ] **6.3** You record the baseline break points on one API instance behind the ALB. You write `docs/reports/load-baseline.md`.
-  - The load tests run on a fixed-performance Graviton type such as `c7g` or `m7g`. You set it with the `instance_type` variable of `compute`.
-  - A `t4g` instance slows down when its CPU credits run out. Its break points would measure the credit balance, not the code.
-- [ ] **6.4** You profile the API and the workers during a `ramp` test.
-  - You record CPU flame graphs of each binary with `cargo flamegraph`.
-  - You turn on `pg_stat_statements` in RDS and run `EXPLAIN ANALYZE` on the slowest queries.
+  Each scenario works like this:
+  - It sets the share of queries that repeat an earlier query's text. The report gives the query reuse rate next to each break point.
+  - Each virtual user sends one query and polls `GET /queries/{id}` every 2 s until the query is `done` or `failed`, or 300 s pass. The polls count as load. The report gives both request rates.
+  - A run reaches its break point when `POST /queries` p99 passes 500 ms, the error rate passes 1%, or a query stays unfinished for 300 s.
+  - k6 writes every query ID it got to a file.
+  - `QUERY_QUOTA_ENABLED=false` and `waf_rate_limit_enabled=false` hold during the tests, as M5 planned. One API key covers the whole run.
+  - k6 runs on your laptop. When k6 drops iterations or its CPU passes 80%, the laptop limits the test. You then run k6 on a `c7g` instance in `us-east-1`. The report names the host.
+- [ ] **6.8** `loadtest/`: You write the tools around the scenarios.
+  - `preload.sql` fills Postgres with the preload: a fixed count of queries, tweets, accounts, and predictions. You run it before the first `ramp` of each session. The stack starts empty after each destroy, and `EXPLAIN ANALYZE` on near-empty tables shows nothing.
+  - `check-queries.sh` reads k6's query ID file. It counts the status of each query in Postgres. A query that is not `done` or `failed` counts as lost.
+  - The README shows how you reach RDS with `psql` through SSM port forwarding from an API instance. RDS stays private.
+  - The README shows how you record a flame graph: you deploy the `profiling` images, run `perf record -g` on the host against the container's process, and fold the output with `inferno`.
+- [ ] **6.9** You record the baseline break points with one instance in each group. You write `docs/reports/load-baseline.md`. You run every scenario in two modes:
+  - **System only:** the synthetic scraper and the fake. The test measures Real Feel's own code.
+  - **Full:** twitterapi.io and the hosted backend. Full mode runs only `smoke` and one low fixed rate, with one scraper instance. The scraper paces its twitterapi.io calls in each process. Two scraper instances would double the call rate on one key. A full-mode `ramp` would find the free-tier rate limit, not a break point.
+- [ ] **6.10** You profile the API and the workers during a system-only `ramp` test.
+  - You record CPU flame graphs of each binary with the `profiling` images.
+  - You run `CREATE EXTENSION pg_stat_statements` in RDS and run `EXPLAIN ANALYZE` on the slowest queries.
   - You use the Datadog traces to find the slowest spans of a query.
   - The report lists the hot paths in order of cost.
-- [ ] **6.5** You fix the hot paths that the profiles show, one change per PR. Candidates: missing indexes, the connection pool size, `BATCH_SIZE`, and SQS batch sends and receives. You re-run the `ramp` scenario after each change.
-- [ ] **6.6** You add an Auto Scaling Group for the API behind the ALB. It scales on the request count per instance.
-- [ ] **6.7** You give each worker role its own Auto Scaling Group. Each group scales on its queue's backlog per instance.
-- [ ] **6.8** You add connection pooling: RDS Proxy or PgBouncer. You add a read replica only if the load tests show reads limit throughput.
-- [ ] **6.9** You define SLOs in Datadog: `POST /queries` p99 latency, error rate, and time from `queued` to `done`. You add alerts.
-- [ ] **6.10** You run failure drills during a `soak` test:
+- [ ] **6.11** You fix the hot paths that the profiles show. Candidates: missing indexes, the pool size, `BATCH_SIZE`, and SQS batch sends and receives.
+  - Each fix is one commit on a `perf/m6-<name>` branch. You deploy the branch, re-run `ramp`, and record the before and after numbers for that commit.
+  - You run each before-and-after pair in the same session, on the same preload.
+- [ ] **6.12** You turn on autoscaling: you raise the maximum sizes and run `ramp` in system-only mode. Autoscaling gates run only in system-only mode.
+- [ ] **6.13** You choose the connection pooling: PgBouncer or RDS Proxy. You add a read replica only if the load tests show reads limit throughput.
+  - sqlx uses named prepared statements. PgBouncer in transaction mode supports them from version 1.21, with `max_prepared_statements` set. RDS Proxy pins every session that uses them, which removes most of its gain. RDS Proxy also bills at least 2 vCPUs.
+  - Without a pooler, you size `DB_MAX_CONNECTIONS` so that every pool at the maximum group sizes stays below the RDS connection limit.
+- [ ] **6.14** `infra/datadog`: You define SLOs and monitors as JSON next to the dashboard: `POST /queries` p99 latency, error rate, time from `queued` to `done`, and a message in a DLQ. You import them as the dashboard README shows.
+- [ ] **6.15** You run failure drills during a `soak` test, with at least 2 API instances:
   - stop an API instance
-  - send a broken job to the DLQ
-- [ ] **6.11** You re-run every scenario after each change. You add the numbers to the load test report.
+  - remove a worker instance while it holds jobs
+  - send a message that is not valid JSON, and a job for a query ID that does not exist
 
-**Docs:** `loadtest/k6/README.md`, `docs/reports/load-m6.md` with the profiles and the before-and-after break points, decision records for the pooling choice and the autoscaling policies.
+  `check-queries.sh` then shows no lost query. One gap stays: a crash of the API between the `INSERT` and the SQS send leaves a `queued` query with no job. A stopped instance stops the API gracefully, so the drill does not hit that gap. The report lists it.
+
+After each change in 6.11 to 6.13, you re-run `ramp`. You run every scenario only at the baseline and at the end.
+
+**Docs:** `loadtest/README.md`, `docs/reports/load-m6.md` with the profiles and the before-and-after break points, decision records for the pooling choice and the autoscaling policies.
 
 **Gate**
 
 - [ ] The load test report shows break points before and after the profiling fixes, autoscaling, and pooling.
 - [ ] The report names each hot path and the change that addressed it.
-- [ ] Autoscaling adds and removes instances during a `ramp` test. Datadog shows it.
-- [ ] The failure drills cause no lost queries.
-- [ ] The SLO dashboard and alerts are live.
+- [ ] Autoscaling adds and removes instances during a `ramp` test. Datadog shows it. CloudWatch metrics reach Datadog about 10 minutes late.
+- [ ] `check-queries.sh` shows no lost query after the failure drills.
+- [ ] The SLO dashboard and monitors are live.
 
 ---
 
@@ -713,7 +758,7 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 - [ ] **7.2** `crates/types`: You define the inference server contract: `POST /v1/classify` takes a batch and returns predictions with a model version. The types generate JSON Schema.
 - [ ] **7.3** `inference/reference`: You build the reference server in Python with `uv`. It generates its request and response models from the JSON Schema. It applies dynamic batching with a maximum batch size and a maximum wait.
 - [ ] **7.4** `inference/reference`: You load Clef-flash in the `bf16`, `int8`, and `int4` variants. The variant is a setting.
-- [ ] **7.5** `infra/terraform`: You add a GPU module. It holds a launch template with an NVIDIA Deep Learning AMI, Spot instances, and an Auto Scaling Group of size 0 or 1. A script on the instance shuts the instance down after a set idle time.
+- [ ] **7.5** `infra/terraform`: You add a GPU module. It holds a launch template with an NVIDIA Deep Learning AMI, Spot instances, and an Auto Scaling group of size 0 or 1. A script on the instance shuts the instance down after a set idle time.
 - [ ] **7.6** `crates/classifier`: You write the self-hosted implementation. `CLASSIFIER_BACKEND` selects `hosted`, `self_hosted`, or `fake`.
 - [ ] **7.7** You run the same experiments on each variant and on the hosted backend. You settle O6. The eval report shows:
   - agreement rate on bot or human against the hosted backend
@@ -722,7 +767,7 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 - [ ] **7.8** You build the benchmark harness. It sends a fixed set of model inputs at batch sizes 1, 8, 32, and 64. It records throughput, p50, p95, and p99 latency, and GPU memory.
 - [ ] **7.9** You enable Datadog GPU monitoring: GPU use, GPU memory, batch size, inference latency.
 - [ ] **7.10** You add the `python` and `contract` jobs to `ci.yml`. You add `gpu.yml` for benchmarks.
-- [ ] **7.11** You scale the GPU Auto Scaling Group on the `classifier-jobs` backlog, with a minimum of 0.
+- [ ] **7.11** You scale the GPU Auto Scaling group on the `classifier-jobs` backlog, with a minimum of 0.
 - [ ] **7.12** You run a failure drill during a `soak` test: let AWS reclaim a Spot GPU instance.
 
 **Docs:** `inference/reference/README.md`, `docs/reports/quantization-m6.md`, `docs/reports/benchmark-reference.md`, decision records for O5 and O6.
@@ -781,7 +826,7 @@ You plan each of these when M8 closes. Each becomes its own spike and decision r
 | Clef-flash's schema head needs custom code | M7 takes longer | Task 7.1 answers this before you build anything. |
 | `candle` lacks Clef-flash's base architecture | M8 grows large | Task 8.1 can stop M8 with a decision record. |
 | AWS approves GPU quota slowly | M7 waits | Task 5.6 asks during M5, so approval lands before M7. |
-| GPU costs run high | Budget overrun | Spot instances, idle shutdown, an Auto Scaling Group minimum of 0, a budget alert. |
+| GPU costs run high | Budget overrun | Spot instances, idle shutdown, an Auto Scaling group minimum of 0, a budget alert. |
 | Paid service costs run high in tests | Budget overrun | CI uses fakes. Only `nightly.yml` and manual runs call paid services. The `eval` binary prints the cost first. |
 | The label agent writes wrong labels | Every accuracy number in M4 is off | You review the first batch and a random 10%. The eval report gives your agreement rate. Cresci-2017 is public. |
 | Cloudflare changes the hosted backend | Hosted experiments drift | `nightly.yml` catches contract changes. Every prediction stores its model version. |

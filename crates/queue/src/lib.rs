@@ -1,6 +1,8 @@
+use std::ops::{Deref, DerefMut};
+
 use aws_sdk_sqs::{
     Client,
-    types::{MessageSystemAttributeName, QueueAttributeName},
+    types::{Message, MessageSystemAttributeName, QueueAttributeName},
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::Span;
@@ -58,6 +60,67 @@ impl<J: Job> Received<J> {
     }
 }
 
+/// A message that is not a valid job. Its receipt handle lets the caller delete it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Broken {
+    pub receipt_handle: String,
+    pub message_id: Option<String>,
+    pub error: String,
+}
+
+/// The messages of one receive. A broken message never hides the valid jobs next to it.
+/// Dereferences to `jobs`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Batch<J> {
+    pub jobs: Vec<Received<J>>,
+    pub broken: Vec<Broken>,
+}
+
+impl<J> Deref for Batch<J> {
+    type Target = Vec<Received<J>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.jobs
+    }
+}
+
+impl<J> DerefMut for Batch<J> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.jobs
+    }
+}
+
+/// A message without a receipt handle returns an error: nobody can delete it.
+/// A message without a receive count gets count 1.
+fn parse_message<J: Job>(message: Message) -> Result<Result<Received<J>, Broken>, Error> {
+    let receipt_handle = message
+        .receipt_handle
+        .ok_or(Error::MissingField("receipt handle"))?;
+    let parsed = message
+        .body
+        .ok_or_else(|| "message has no body".to_string())
+        .and_then(|body| serde_json::from_str(&body).map_err(|error| error.to_string()));
+    Ok(match parsed {
+        Ok(job) => Ok(Received {
+            job,
+            receive_count: message
+                .attributes
+                .as_ref()
+                .and_then(|attributes| {
+                    attributes.get(&MessageSystemAttributeName::ApproximateReceiveCount)
+                })
+                .and_then(|count| count.parse().ok())
+                .unwrap_or(1),
+            receipt_handle,
+        }),
+        Err(error) => Err(Broken {
+            receipt_handle,
+            message_id: message.message_id,
+            error,
+        }),
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct Queue {
     client: Client,
@@ -87,10 +150,11 @@ impl Queue {
         Ok(())
     }
 
-    /// Long-polls for up to `wait_seconds` and returns at most 10 jobs.
+    /// Long-polls for up to `wait_seconds` and returns at most 10 messages.
+    /// Parses each message on its own and puts the ones that are not valid jobs in `broken`.
     // LocalStack ignores the newer `message_system_attribute_names`.
     #[allow(deprecated)]
-    pub async fn receive<J: Job>(&self, wait_seconds: i32) -> Result<Vec<Received<J>>, Error> {
+    pub async fn receive<J: Job>(&self, wait_seconds: i32) -> Result<Batch<J>, Error> {
         let output = self
             .client
             .receive_message()
@@ -102,29 +166,17 @@ impl Queue {
             .await
             .map_err(|error| Error::Sqs(Box::new(error.into())))?;
 
-        output
-            .messages
-            .unwrap_or_default()
-            .into_iter()
-            .map(|message| {
-                let body = message.body.ok_or(Error::MissingField("body"))?;
-                let receive_count = message
-                    .attributes
-                    .as_ref()
-                    .and_then(|attributes| {
-                        attributes.get(&MessageSystemAttributeName::ApproximateReceiveCount)
-                    })
-                    .and_then(|count| count.parse().ok())
-                    .ok_or(Error::MissingField("receive count"))?;
-                Ok(Received {
-                    job: serde_json::from_str(&body)?,
-                    receive_count,
-                    receipt_handle: message
-                        .receipt_handle
-                        .ok_or(Error::MissingField("receipt handle"))?,
-                })
-            })
-            .collect()
+        let mut batch = Batch {
+            jobs: Vec::new(),
+            broken: Vec::new(),
+        };
+        for message in output.messages.unwrap_or_default() {
+            match parse_message(message)? {
+                Ok(received) => batch.jobs.push(received),
+                Err(broken) => batch.broken.push(broken),
+            }
+        }
+        Ok(batch)
     }
 
     /// Succeeds when SQS answers for this queue.
@@ -147,5 +199,68 @@ impl Queue {
             .await
             .map_err(|error| Error::Sqs(Box::new(error.into())))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn message(body: Option<&str>, receipt_handle: Option<&str>) -> Message {
+        Message::builder()
+            .set_body(body.map(Into::into))
+            .set_receipt_handle(receipt_handle.map(Into::into))
+            .message_id("m-1")
+            .attributes(MessageSystemAttributeName::ApproximateReceiveCount, "3")
+            .build()
+    }
+
+    #[test]
+    fn splits_a_valid_message_from_an_invalid_one() {
+        let query_id = Uuid::nil();
+        let valid = format!(r#"{{"query_id":"{query_id}","trace_context":null}}"#);
+
+        let good = parse_message::<ScraperJob>(message(Some(&valid), Some("r-1")))
+            .unwrap()
+            .unwrap();
+        assert_eq!(good.job.query_id, query_id);
+        assert_eq!(good.receive_count, 3);
+        assert_eq!(good.receipt_handle, "r-1");
+
+        let bad = parse_message::<ScraperJob>(message(Some("not json"), Some("r-2")))
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(bad.receipt_handle, "r-2");
+        assert_eq!(bad.message_id.as_deref(), Some("m-1"));
+        assert!(!bad.error.is_empty());
+    }
+
+    #[test]
+    fn a_message_without_a_body_is_broken() {
+        let bad = parse_message::<ScraperJob>(message(None, Some("r-1")))
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(bad.error, "message has no body");
+    }
+
+    #[test]
+    fn a_message_without_a_receipt_handle_is_an_error() {
+        let result = parse_message::<ScraperJob>(message(Some("{}"), None));
+        assert!(matches!(result, Err(Error::MissingField("receipt handle"))));
+    }
+
+    #[test]
+    fn a_missing_receive_count_becomes_one() {
+        let query_id = Uuid::nil();
+        let message = Message::builder()
+            .body(format!(
+                r#"{{"query_id":"{query_id}","trace_context":null}}"#
+            ))
+            .receipt_handle("r-1")
+            .build();
+        let received = parse_message::<ScraperJob>(message).unwrap().unwrap();
+        assert_eq!(received.receive_count, 1);
     }
 }
