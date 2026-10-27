@@ -1,9 +1,4 @@
-output "api_instance_id" {
-  description = "ID of the API instance. The deploy workflow targets it with tag role=api."
-  value       = aws_instance.api.id
-}
-
-output "worker_instance_id" {
-  description = "ID of the worker instance. The deploy workflow targets it with tag role=worker."
-  value       = aws_instance.worker.id
+output "autoscaling_group_names" {
+  description = "Names of the Auto Scaling groups, keyed by role. The deploy workflow targets instances with tag role=<role>."
+  value       = { for role, group in aws_autoscaling_group.group : role => group.name }
 }

@@ -1,6 +1,6 @@
 # Terraform
 
-This folder builds Real Feel on AWS: a VPC, two EC2 instances, an ALB with AWS WAF, RDS Postgres, four SQS queues, two ECR repositories, and two IAM roles.
+This folder builds Real Feel on AWS: a VPC, three Auto Scaling groups of EC2 instances, an ALB with AWS WAF, RDS Postgres, four SQS queues, two ECR repositories, and two IAM roles.
 
 ## Where it sits
 
@@ -11,7 +11,7 @@ infra/terraform/
   modules/     network, database, queues, registry, iam, compute, edge
 ```
 
-`deploy.yml` builds the images and pushes them to ECR. It then runs the restart script on both instances through SSM Run Command. See [the Datadog README](../datadog/README.md) for the dashboard.
+`deploy.yml` builds the images and pushes them to ECR. It then writes the image tag to SSM and runs the restart script on the `api`, `scraper`, and `classifier` instances through SSM Run Command. See [the Datadog README](../datadog/README.md) for the dashboard.
 
 ## Terms
 
@@ -33,6 +33,21 @@ See [glossary.md](../../docs/glossary.md) for `bootstrap configuration`, `eval b
 - A domain name. See [Domain and certificate](#domain-and-certificate).
 - A Datadog account and a Datadog API key.
 
+## Instances
+
+Three Auto Scaling groups run the instances: `api`, `scraper`, and `classifier`. Each group has a launch template and spreads its instances over the public subnets.
+
+- **Role.** User data writes `api`, `scraper`, or `classifier` to `/opt/real-feel/role`. The group tag `role` holds the same value, and `deploy.yml` targets instances with `Key=tag:role,Values=<role>`.
+- **Restart script.** It starts only the container of that role: `api`, `worker-scraper`, or `worker-classifier`. It starts the Datadog agent on every instance.
+- **Instance settings.** Each instance has an encrypted gp3 root volume, a public IP address, IMDSv2 with hop limit 2, and standard CPU credits when the type is a `t` class. The `api` group uses the API instance profile. The two worker groups use the worker instance profile.
+- **AMI.** The launch template reads the AMI from SSM when it is created, then ignores later changes. To move to a new AMI, run `terraform apply -replace='module.compute.aws_launch_template.group["api"]'` for each group, then terminate the old instances.
+- **User data.** A change to the restart script adds a launch template version. Running instances keep the old script. Terminate an instance, and its group starts a new one with the new script.
+- **First boot.** The compute module creates the SSM parameter `/real-feel/deploy/IMAGE_TAG` with the value `none`. `deploy.yml` writes the deployed tag there. User data reads the parameter and runs `restart.sh <tag>` when the value is not `none`. If it is `none`, the instance logs that and waits for the first deploy. A failed restart goes to the cloud-init log and does not fail the boot. The restart script reads `/real-feel/` without recursion, so `deploy/IMAGE_TAG` stays out of the app env.
+- **API group.** It registers its instances with the ALB target group and uses the ALB health check with a 300 s grace period. Before the first deploy, no API container runs, so the check fails. The group replaces the instance after the grace period. Run `deploy.yml` within 5 minutes of the `apply`, or the group starts a new instance that boots with the new tag.
+- **Scaling.** The `api` group keeps `api_requests_per_target` requests per minute on each instance. Each worker group keeps its queue's `ApproximateNumberOfMessagesVisible` divided by `GroupInServiceInstances` near its backlog target.
+- **Slow scale-in.** Target tracking on a worker group has `disable_scale_in = true`, so it only adds instances. A CloudWatch alarm and a simple scaling policy remove instances. The alarm needs 15 minutes of backlog per instance below 90 % of the target. The policy removes one instance, then waits a 300 s cooldown. A removed worker drops its in-flight jobs, and SQS returns each job after the visibility timeout. One instance per 5 minutes keeps that churn far below `maxReceiveCount`.
+- **Group metrics.** Every group reports its metrics at a 1-minute granularity, so Datadog shows the instance count.
+
 ## Configuration
 
 | Variable | Default | Meaning |
@@ -43,6 +58,14 @@ See [glossary.md](../../docs/glossary.md) for `bootstrap configuration`, `eval b
 | `domain_name` | `api.danielemartinez.com` | The domain name of the API. Both configurations take it. |
 | `waf_rate_limit` | `1000` | The requests that one IP address may send in 5 minutes before WAF answers `429`. |
 | `waf_rate_limit_enabled` | `true` | `false` makes the rate rule count requests and block none. |
+| `api_instance_type`, `scraper_instance_type`, `classifier_instance_type` | `t4g.small` | The EC2 instance type of each group. |
+| `api_min_size`, `scraper_min_size`, `classifier_min_size` | `1` | The minimum instance count of each group. The group starts with this many instances. |
+| `api_max_size`, `scraper_max_size`, `classifier_max_size` | `1` | The maximum instance count of each group. |
+| `api_requests_per_target` | `1000` | The requests per minute that one API instance serves before the group adds an instance. |
+| `scraper_backlog_per_instance` | `10` | The visible scraper jobs per scraper instance before the group adds an instance. |
+| `classifier_backlog_per_instance` | `20` | The visible classifier jobs per classifier instance before the group adds an instance. |
+| `db_instance_class` | `db.t4g.micro` | The RDS instance class. |
+| `config_overrides` | `{}` | Settings that replace or add to the `config` map. See [Switches](#switches). |
 
 The bootstrap configuration takes `region` and `domain_name`. The main configuration takes the rest.
 
@@ -80,6 +103,7 @@ The main configuration attaches a WAF web ACL to the ALB. The web ACL has two ru
 ## Switches
 
 - **`waf_rate_limit_enabled`.** `false` sets the rate rule action to `count`. WAF records the requests and blocks none. Use it for load tests.
+- **`config_overrides`.** A tfvars file sets `SCRAPER`, `CLASSIFIER`, `QUERY_QUOTA_ENABLED`, `SYNTHETIC_*`, `FAKE_LATENCY_MS`, and `DB_MAX_CONNECTIONS` here. The map merges over the `config` map. The `config` map defaults `SCRAPER` to `twitterapi` and `CLASSIFIER` to `hosted`. The restart script uses its own defaults only when SSM holds neither value.
 - **`QUERY_QUOTA_ENABLED`.** The `config` map in `main/main.tf` writes it to SSM. `true` turns on the per-key query quota of the API. Change the value and run `apply` and `deploy.yml`. The restart script reads the new value.
 
 ## Run it
@@ -132,7 +156,7 @@ Run every command from the repository root.
 
 7. Finish the Datadog AWS integration. Paste the output of `terraform -chdir=infra/terraform/main output -raw datadog_role_arn` into the role ARN field. Datadog adds the account only when you finish the form. Open the account's **Metric Collection** tab, turn on SQS, RDS, and EC2, turn off every other service, and keep the region `us-east-1`. Then save.
 
-8. Run `deploy.yml` by hand. The new ECR repositories are empty, so no merge to `main` has pushed images yet. GitHub runs `deploy.yml` only from `main`, and the deploy role trusts only `main`. First wait until both instances appear in `aws ssm describe-instance-information`. The instances need a few minutes after `apply` to install Docker and register with SSM.
+8. Run `deploy.yml` by hand. The new ECR repositories are empty, so no merge to `main` has pushed images yet. GitHub runs `deploy.yml` only from `main`, and the deploy role trusts only `main`. First wait until the three instances appear in `aws ssm describe-instance-information`. The instances need a few minutes after `apply` to install Docker and register with SSM.
 
    ```bash
    gh workflow run deploy.yml
@@ -140,6 +164,17 @@ Run every command from the repository root.
    ```
 
 9. Create the dashboard. Follow [the Datadog README](../datadog/README.md).
+
+## Load test sizes
+
+`main/loadtest.tfvars` holds the load test sizes: `c7g.large` in each group, `db.m7g.large`, and maximum sizes of 3 for `api` and 2 for each worker group. It runs system-only mode with `SCRAPER=synthetic`, `CLASSIFIER=fake`, and `QUERY_QUOTA_ENABLED=false`, and it turns the WAF rate rule to count. The file holds no secret. Its top comment says how to switch to full mode.
+
+```bash
+terraform -chdir=infra/terraform/main apply -var-file=loadtest.tfvars \
+  -var datadog_external_id=<external ID>
+```
+
+RDS `t4g` classes run with unlimited CPU credits, so a `ramp` on `db.t4g.micro` would measure the credit balance, not the code. You must run `terraform destroy` with the same variables after every load test session. See [Costs](#costs).
 
 ## Store the eval set
 
@@ -187,7 +222,7 @@ terraform -chdir=infra/terraform/main destroy \
   -var datadog_site=us5.datadoghq.com
 ```
 
-After a new `apply`, repeat steps 5, 6, 7, and 8. A new `apply` creates new placeholder parameters, a new role ARN, and empty ECR repositories.
+After a new `apply`, repeat steps 5, 6, 7, and 8. A new `apply` resets the image tag parameter to `none`. A new `apply` creates new placeholder parameters, a new role ARN, and empty ECR repositories.
 
 ## Costs
 
@@ -195,10 +230,10 @@ These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-
 
 | Item | Rate | Monthly (USD) |
 |------|------|---------------|
-| 2× EC2 `t4g.small` (Graviton, arm64) | 0.0168 USD/h each | 24.53 |
+| 3× EC2 `t4g.small` (Graviton, arm64), one for each group | 0.0168 USD/h each | 36.79 |
 | RDS `db.t4g.micro`, single-AZ | about 0.016 USD/h | 11.68 |
 | RDS storage, 20 GB gp3 | 0.115 USD/GB-month | 2.30 |
-| 2 to 3 public IPv4 addresses | 0.005 USD/h each | 7.30 to 10.95 |
+| 3 to 4 public IPv4 addresses | 0.005 USD/h each | 10.95 to 14.60 |
 | ALB | about 16 USD, plus LCU charges | about 16 |
 | WAF web ACL, two rules | 5 USD for the web ACL, 1 USD for each rule, 0.60 USD per million requests | about 7 |
 | Route 53 hosted zone | 0.50 USD/month | 0.50 |
@@ -206,14 +241,15 @@ These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-
 | SQS, four queues | first 1 million requests free, then 0.40 USD per million | 0 to 0.50 |
 | Secrets Manager, one secret | 0.40 USD/month | 0.40 |
 | S3 state bucket and eval bucket | a few MB | under 0.01 |
-| **Total** | | **about 70 to 74** |
+| **Total** | | **about 85 to 89** |
 
-- The two instances hold two public IPv4 addresses. A third address appears while you replace an instance. The ALB holds its own addresses, which the ALB price includes.
+- The three instances hold three public IPv4 addresses. A fourth address appears while a group replaces an instance. The ALB holds its own addresses, which the ALB price includes.
 - The ALB and WAF bill by the hour, so a `destroy` of the main configuration stops both. The hosted zone keeps billing.
 - Data transfer, CloudWatch Logs, and the Datadog subscription cost extra.
 - RDS keeps one day of backups, which the free backup allowance covers.
 - The twitterapi.io and Cloudflare charges for real queries cost extra.
-- You run `terraform destroy` at the end of every work session. A destroyed stack costs only the two S3 buckets and the hosted zone. A running stack costs about 17 USD a week.
+- You run `terraform destroy` at the end of every work session. A destroyed stack costs only the two S3 buckets and the hosted zone. A running stack costs about 20 USD a week.
+- A load test costs more. At the maximum sizes, the groups run 7 `c7g.large` instances at about 0.0725 USD/h each, and RDS `db.m7g.large` costs about 0.15 USD/h. That adds about 0.67 USD/h. You must run `terraform destroy` after each load test session, because a forgotten stack bills about 16 USD a day.
 - You run `apply` and `deploy.yml` at the start of the next session, then repeat steps 5 to 8.
 
 ## Failure modes
@@ -224,7 +260,7 @@ These are estimates, not quotes. They use us-east-1 on-demand prices on 2026-10-
 - **The restart script fails on an instance.** Run `aws ssm start-session --target <instance id>`, then read the script output. A secret that still holds `placeholder` is the usual cause. Redo step 5.
 - **The bootstrap `apply` waits on the certificate.** ACM cannot see the DNS validation record. Add the `zone_name_servers` output to Cloudflare as NS records named `api`.
 - **The main `apply` finds no certificate.** The bootstrap configuration has not issued one for `domain_name`. Apply the bootstrap configuration with the same `domain_name`.
-- **The ALB answers `502`.** The health check fails. Check that the API container runs, and that `GET /health` answers `200` on port 80 of the API instance.
+- **The ALB answers `502`.** The health check fails. Check that the API container runs, and that `GET /health` answers `200` on port 80 of the API instance. Before the first deploy, no container runs, so the API group replaces its instance every 5 minutes.
 - **WAF answers `429` to a legitimate client.** The client passed `waf_rate_limit`. Raise the limit and run `apply`.
 - **Datadog shows no SQS, RDS, or EC2 metrics.** The integration does not have the role ARN yet, or the service is off in **Metric Collection**. Redo step 7.
 

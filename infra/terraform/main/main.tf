@@ -19,6 +19,7 @@ module "database" {
 
   private_subnet_ids = module.network.private_subnet_ids
   db_sg_id           = module.network.db_sg_id
+  instance_class     = var.db_instance_class
 }
 
 module "queues" {
@@ -47,7 +48,35 @@ module "compute" {
   queue_arns            = module.queues.queue_arns
   db_secret_arn         = module.database.db_secret_arn
 
-  config = {
+  groups = {
+    api = {
+      instance_type = var.api_instance_type
+      min_size      = var.api_min_size
+      max_size      = var.api_max_size
+    }
+    scraper = {
+      instance_type = var.scraper_instance_type
+      min_size      = var.scraper_min_size
+      max_size      = var.scraper_max_size
+    }
+    classifier = {
+      instance_type = var.classifier_instance_type
+      min_size      = var.classifier_min_size
+      max_size      = var.classifier_max_size
+    }
+  }
+
+  target_group_arn        = module.edge.target_group_arn
+  target_group_arn_suffix = module.edge.target_group_arn_suffix
+  alb_arn_suffix          = module.edge.alb_arn_suffix
+  scraper_queue_name      = module.queues.scraper_queue_name
+  classifier_queue_name   = module.queues.classifier_queue_name
+
+  api_requests_per_target         = var.api_requests_per_target
+  scraper_backlog_per_instance    = var.scraper_backlog_per_instance
+  classifier_backlog_per_instance = var.classifier_backlog_per_instance
+
+  config = merge({
     SCRAPER_QUEUE_URL    = module.queues.scraper_queue_url
     SCRAPER_DLQ_URL      = module.queues.scraper_dlq_url
     CLASSIFIER_QUEUE_URL = module.queues.classifier_queue_url
@@ -69,7 +98,9 @@ module "compute" {
     BATCH_SIZE          = "25"
     # Stays below the 300 s visibility timeout of the queues.
     JOB_DEADLINE_SECS = "240"
-  }
+    SCRAPER           = "twitterapi"
+    CLASSIFIER        = "hosted"
+  }, var.config_overrides)
 }
 
 module "edge" {
@@ -78,7 +109,6 @@ module "edge" {
   vpc_id                 = module.network.vpc_id
   public_subnet_ids      = module.network.public_subnet_ids
   alb_sg_id              = module.network.alb_sg_id
-  api_instance_id        = module.compute.api_instance_id
   domain_name            = var.domain_name
   zone_id                = data.aws_route53_zone.main.zone_id
   certificate_arn        = data.aws_acm_certificate.main.arn

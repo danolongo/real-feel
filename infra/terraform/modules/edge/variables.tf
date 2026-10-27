@@ -13,11 +13,6 @@ variable "alb_sg_id" {
   type        = string
 }
 
-variable "api_instance_id" {
-  description = "ID of the API instance that the target group sends traffic to."
-  type        = string
-}
-
 variable "domain_name" {
   description = "Domain name of the API. The alias record points it at the ALB."
   type        = string
