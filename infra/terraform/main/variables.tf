@@ -30,5 +30,5 @@ variable "datadog_external_id" {
 variable "datadog_site" {
   description = "Datadog site that the agent sends data to."
   type        = string
-  default     = "datadoghq.com"
+  default     = "us5.datadoghq.com"
 }

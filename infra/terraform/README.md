@@ -39,7 +39,7 @@ See [glossary.md](../../docs/glossary.md) for `bootstrap configuration`, `eval b
 |----------|---------|---------|
 | `region` | `us-east-1` | The AWS region. |
 | `datadog_external_id` | none | The external ID that Datadog shows when you add the AWS integration. |
-| `datadog_site` | `datadoghq.com` | The Datadog site. |
+| `datadog_site` | `us5.datadoghq.com` | The Datadog site. |
 | `domain_name` | `api.danielemartinez.com` | The domain name of the API. Both configurations take it. |
 | `waf_rate_limit` | `1000` | The requests that one IP address may send in 5 minutes before WAF answers `429`. |
 | `waf_rate_limit_enabled` | `true` | `false` makes the rate rule count requests and block none. |
