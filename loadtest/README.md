@@ -32,7 +32,23 @@ See [glossary.md](../docs/glossary.md): query, query reuse, query status, API ke
    brew install k6
    ```
 
-2. Create the API key. Open a session on an API instance, then run `api-key` in the container. [The API README](../crates/api/README.md) shows the same steps.
+2. Apply the load test sizes from `infra/terraform/main`. [`loadtest.tfvars`](../infra/terraform/main/loadtest.tfvars) sets the instance types, the group sizes, and the RDS class. It also turns on system-only mode, turns the query quota off, and switches the WAF rate rule to count. Pass the same `-var` flags as a normal apply:
+
+   ```bash
+   terraform apply -var-file=loadtest.tfvars \
+     -var domain_name=api.danielemartinez.com \
+     -var datadog_external_id=<external ID>
+   ```
+
+   For full mode, edit `loadtest.tfvars` as its header says, then apply again.
+
+3. Run `deploy.yml`. The restart script reads the new SSM settings on each restart:
+
+   ```bash
+   gh workflow run deploy.yml --ref <branch>
+   ```
+
+4. Create the API key. Open a session on an API instance, then run `api-key` in the container. [The API README](../crates/api/README.md) shows the same steps.
 
    ```bash
    aws ssm start-session --target <api instance id>
@@ -40,14 +56,6 @@ See [glossary.md](../docs/glossary.md): query, query reuse, query status, API ke
    ```
 
    The instance ID comes from `aws ec2 describe-instances --filters Name=tag:role,Values=api Name=instance-state-name,Values=running --query 'Reservations[].Instances[].InstanceId' --output text`. Copy the key when `api-key` prints it. `api-key` prints the key once.
-
-3. Apply the load test sizes. Run Terraform from `infra/terraform/main`, with the flags that [`loadtest.tfvars`](../infra/terraform/main/loadtest.tfvars) needs:
-
-   ```bash
-   terraform apply -var-file=loadtest.tfvars
-   ```
-
-   Set `QUERY_QUOTA_ENABLED=false` and `waf_rate_limit_enabled=false` for the session, then run `deploy.yml`. For system-only mode, set the SSM parameters `SCRAPER=synthetic` and `CLASSIFIER=fake`, then run `deploy.yml`.
 
 ## Run it
 
@@ -100,18 +108,18 @@ k6 runs on your laptop first. Move it to a `c7g` instance in `us-east-1` when k6
 
    `terraform output` does not print `db_secret_arn`. Read it with `aws rds describe-db-instances --query 'DBInstances[].MasterUserSecret.SecretArn'`. The secret holds `username` and `password`.
 
-2. Forward a local port to RDS through an API instance. Keep this terminal open:
+2. Forward local port 5434 to RDS through an API instance. Port 5433 belongs to the local Postgres of Docker Compose. Keep this terminal open:
 
    ```bash
    aws ssm start-session --target <api instance id> \
      --document-name AWS-StartPortForwardingSessionToRemoteHost \
-     --parameters "{\"host\":[\"$DB_HOST\"],\"portNumber\":[\"5432\"],\"localPortNumber\":[\"5433\"]}"
+     --parameters "{\"host\":[\"$DB_HOST\"],\"portNumber\":[\"5432\"],\"localPortNumber\":[\"5434\"]}"
    ```
 
 3. In a second terminal, connect:
 
    ```bash
-   export DATABASE_URL="postgres://realfeel:<password>@localhost:5433/realfeel?sslmode=require"
+   export DATABASE_URL="postgres://<username>:<password>@localhost:5434/realfeel?sslmode=require"
    psql "$DATABASE_URL"
    ```
 
