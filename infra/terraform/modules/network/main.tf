@@ -89,12 +89,17 @@ resource "aws_route_table_association" "private" {
 }
 
 resource "aws_security_group" "api" {
-  name        = "${local.name}-api"
+  name_prefix = "${local.name}-api-"
   description = "API instance. Accepts HTTP from the ALB only."
   vpc_id      = aws_vpc.main.id
 
   tags = {
     Name = "${local.name}-api"
+  }
+
+  # AWS cannot delete a security group that an instance still uses, so the new one comes first.
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
