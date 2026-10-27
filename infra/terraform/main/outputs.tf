@@ -13,12 +13,7 @@ output "datadog_role_arn" {
   value       = module.iam.datadog_role_arn
 }
 
-output "api_instance_id" {
-  description = "ID of the API instance. Target it with the tag role=api."
-  value       = module.compute.api_instance_id
-}
-
-output "worker_instance_id" {
-  description = "ID of the worker instance. Target it with the tag role=worker."
-  value       = module.compute.worker_instance_id
+output "autoscaling_group_names" {
+  description = "Names of the Auto Scaling groups, keyed by role. Target their instances with the tag role=<role>."
+  value       = module.compute.autoscaling_group_names
 }

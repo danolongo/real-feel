@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
 # Replaces the containers on this instance with the images for one image tag.
+# The role file holds api, scraper, or classifier. The instance runs only that
+# role's container, plus the Datadog agent.
 # Terraform installs this file at /opt/real-feel/restart.sh. The deploy
 # workflow runs it through SSM Run Command: restart.sh <image tag>.
 set -euo pipefail
@@ -43,7 +45,7 @@ imds_region() {
 # non-secret settings and the secrets come from the same read. mktemp creates
 # the file with mode 600, so the secrets never sit in a world-readable file.
 write_app_env() {
-  local tmp name value db_host db_port db_name db_secret database_url
+  local tmp name value db_host db_port db_name db_secret database_url scraper classifier
 
   tmp=$(mktemp "$APP_DIR/app.env.XXXXXX")
   aws ssm get-parameters-by-path --path /real-feel/ --with-decryption \
@@ -55,6 +57,8 @@ write_app_env() {
   db_host=$(read_value DB_HOST "$tmp")
   db_port=$(read_value DB_PORT "$tmp")
   db_name=$(read_value DB_NAME "$tmp")
+  scraper=$(read_value SCRAPER "$tmp")
+  classifier=$(read_value CLASSIFIER "$tmp")
   db_secret=$(aws secretsmanager get-secret-value \
     --secret-id "$(read_value DB_SECRET_ARN "$tmp")" \
     --query SecretString --output text)
@@ -75,10 +79,10 @@ print(f"postgres://{user}:{password}@{host}:{port}/{name}?sslmode=require")
 
   {
     printf 'DATABASE_URL=%s\n' "$database_url"
-    printf '%s\n' \
-      'OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-agent:4318' \
-      'SCRAPER=twitterapi' \
-      'CLASSIFIER=hosted'
+    printf '%s\n' 'OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-agent:4318'
+    # SSM wins. The defaults apply only when SSM sets no value.
+    [[ -n $scraper ]] || printf '%s\n' 'SCRAPER=twitterapi'
+    [[ -n $classifier ]] || printf '%s\n' 'CLASSIFIER=hosted'
   } >>"$tmp"
 
   mv -f "$tmp" "$ENV_FILE"
@@ -217,7 +221,7 @@ main() {
 
   case "$role" in
     api) repo=$(get_param /real-feel/deploy/API_REPOSITORY) ;;
-    worker) repo=$(get_param /real-feel/deploy/WORKER_REPOSITORY) ;;
+    scraper | classifier) repo=$(get_param /real-feel/deploy/WORKER_REPOSITORY) ;;
     *) die "unknown role in $APP_DIR/role: $role" ;;
   esac
 
@@ -233,8 +237,7 @@ main() {
     start_api "$repo:$tag"
     wait_for_ready
   else
-    start_worker "$repo:$tag" scraper
-    start_worker "$repo:$tag" classifier
+    start_worker "$repo:$tag" "$role"
   fi
 
   log "done"

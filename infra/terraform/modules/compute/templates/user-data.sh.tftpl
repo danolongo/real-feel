@@ -13,3 +13,17 @@ cat >/opt/real-feel/restart.sh <<'RESTART_SCRIPT'
 ${restart_script}
 RESTART_SCRIPT
 chmod 755 /opt/real-feel/restart.sh
+
+# A failed start must not fail the boot. deploy.yml restarts the instance
+# later, and the cloud-init log keeps the reason.
+if ! tag=$(aws ssm get-parameter --region '${region}' --name /real-feel/deploy/IMAGE_TAG \
+  --query Parameter.Value --output text); then
+  echo "user-data: cannot read /real-feel/deploy/IMAGE_TAG" >&2
+  tag=none
+fi
+
+if [[ "$tag" == none ]]; then
+  echo "user-data: no deploy has run yet, waiting for the first deploy"
+elif ! /opt/real-feel/restart.sh "$tag"; then
+  echo "user-data: restart.sh failed for image tag $tag" >&2
+fi

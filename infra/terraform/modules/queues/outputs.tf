@@ -27,3 +27,13 @@ output "queue_arns" {
     aws_sqs_queue.classifier_dlq.arn,
   ]
 }
+
+output "scraper_queue_name" {
+  description = "Name of the scraper-jobs queue. The CloudWatch metrics use it."
+  value       = aws_sqs_queue.scraper.name
+}
+
+output "classifier_queue_name" {
+  description = "Name of the classifier-jobs queue. The CloudWatch metrics use it."
+  value       = aws_sqs_queue.classifier.name
+}
