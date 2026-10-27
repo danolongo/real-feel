@@ -653,7 +653,7 @@ The stack runs only while you work on it. You run `terraform destroy` at the end
 - [x] `curl https://api.danielemartinez.com/health` answers over a valid certificate. HTTP redirects to HTTPS. The API instance answers no request from the internet directly.
 - [x] `GET /queries/{id}` returns `progress` in every status, and the new tweet and account fields once the status is `done`.
 - [ ] AWS has received the GPU quota application.
-- [ ] `terraform destroy` followed by `terraform apply` and one `deploy.yml` run rebuilds the stack, with the ALB, WAF, and certificate. You prove it once. This item moved from M3. Between `apply` and the deploy, you set the four secrets again with `put-parameter`, because `apply` writes placeholders. After the deploy, you create a new API key, because `destroy` deletes RDS.
+- [x] `terraform destroy` followed by `terraform apply` and one `deploy.yml` run rebuilds the stack, with the ALB, WAF, and certificate. You prove it once. This item moved from M3. Between `apply` and the deploy, you set the four secrets again with `put-parameter`, because `apply` writes placeholders. After the deploy, you create a new API key, because `destroy` deletes RDS.
 
 ---
 
